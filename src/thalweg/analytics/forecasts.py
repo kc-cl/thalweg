@@ -184,8 +184,7 @@ def forecast_from_analogs(
         return pl.DataFrame(schema=FORECAST_SCHEMA)
 
     # Get the set of available dates for fast lookup
-    available_dates = ccy_curves["date"].unique().sort().to_list()
-    date_set = set(available_dates)
+    date_set = set(ccy_curves["date"].unique().to_list())
 
     # Tolerance window for finding the nearest available date
     date_tolerance = 5
