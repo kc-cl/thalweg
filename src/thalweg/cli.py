@@ -136,13 +136,17 @@ def backfill(source: str, start: click.DateTime, end: click.DateTime) -> None:
 
 @cli.command()
 def analyze() -> None:
-    """Recompute derived analytics (spreads, slopes, curvature)."""
+    """Recompute derived analytics (spreads, slopes, curvature, PCA, fan charts)."""
+    import polars as pl
+
     from thalweg import storage
     from thalweg.analytics import (
         classify_regimes,
         compute_cross_market_spreads,
         compute_curvature,
+        compute_fan_chart,
         compute_slopes,
+        fit_all_pca,
     )
     from thalweg.config import DERIVED_DIR
 
@@ -172,6 +176,44 @@ def analyze() -> None:
     if not regimes.is_empty():
         storage.append_regimes(regimes)
         click.echo(f"  Wrote {regimes.shape[0]} regime records")
+
+    # --- PCA + fan charts ---
+    pca_results = fit_all_pca(curves)
+    if pca_results:
+        # Scores
+        all_scores = pl.concat([r.scores_df for r in pca_results.values()])
+        all_scores.write_parquet(DERIVED_DIR / "pca_scores.parquet")
+        click.echo(f"  Wrote {all_scores.shape[0]} PCA score records")
+
+        # Loadings
+        loadings_rows = []
+        for r in pca_results.values():
+            for i in range(len(r.explained_variance)):
+                for j, tenor in enumerate(r.tenors):
+                    loadings_rows.append({
+                        "currency": r.currency,
+                        "curve_type": r.curve_type,
+                        "component": f"pc{i + 1}",
+                        "tenor_years": tenor,
+                        "loading": float(r.components[i][j]),
+                        "explained_variance_ratio": float(r.explained_variance[i]),
+                    })
+        loadings_df = pl.DataFrame(loadings_rows)
+        loadings_df.write_parquet(DERIVED_DIR / "pca_loadings.parquet")
+        click.echo(f"  Wrote {loadings_df.shape[0]} PCA loading records")
+
+        # Fan charts
+        fan_parts = []
+        for r in pca_results.values():
+            fan = compute_fan_chart(curves, r)
+            if not fan.is_empty():
+                fan_parts.append(fan)
+        if fan_parts:
+            all_fans = pl.concat(fan_parts)
+            all_fans.write_parquet(DERIVED_DIR / "fan_charts.parquet")
+            click.echo(f"  Wrote {all_fans.shape[0]} fan chart records")
+    else:
+        click.echo("  Skipping PCA (insufficient data)")
 
     click.echo("Analytics complete.")
 
