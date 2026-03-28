@@ -157,34 +157,41 @@ async def curves_changes() -> dict:
     if curves.is_empty():
         return {"changes": []}
 
-    today = curves["date"].max()
     horizons = {"1d": 1, "1w": 7, "1m": 30, "1y": 365}
 
-    today_curves = curves.filter(pl.col("date") == today)
+    # Compute changes per currency using each currency's own latest date
+    latest_dates = _latest_per_group(curves, "currency")
     changes: list[pl.DataFrame] = []
 
-    for label, days in horizons.items():
-        target_date = today - timedelta(days=days)
-        past = curves.filter(pl.col("date") <= target_date)
-        if past.is_empty():
-            continue
-        closest = past["date"].max()
-        past_curves = curves.filter(pl.col("date") == closest)
+    for (ccy,), ccy_curves in curves.group_by(["currency"]):
+        ccy_latest = latest_dates.filter(pl.col("currency") == ccy)
+        today = ccy_latest["date"].max()
+        today_curves = ccy_curves.filter(pl.col("date") == today)
 
-        merged = today_curves.join(
-            past_curves.select([
-                "currency",
-                "curve_type",
-                "tenor_years",
-                pl.col("yield_pct").alias("prev_yield"),
-            ]),
-            on=["currency", "curve_type", "tenor_years"],
-        )
-        merged = merged.with_columns(
-            (pl.col("yield_pct") - pl.col("prev_yield")).alias("change_pct"),
-            pl.lit(label).alias("horizon"),
-        )
-        changes.append(merged.select(["currency", "tenor_years", "horizon", "change_pct"]))
+        for label, days in horizons.items():
+            target_date = today - timedelta(days=days)
+            past = ccy_curves.filter(pl.col("date") <= target_date)
+            if past.is_empty():
+                continue
+            closest = past["date"].max()
+            past_curves = ccy_curves.filter(pl.col("date") == closest)
+
+            merged = today_curves.join(
+                past_curves.select([
+                    "currency",
+                    "curve_type",
+                    "tenor_years",
+                    pl.col("yield_pct").alias("prev_yield"),
+                ]),
+                on=["currency", "curve_type", "tenor_years"],
+            )
+            merged = merged.with_columns(
+                (pl.col("yield_pct") - pl.col("prev_yield")).alias("change_pct"),
+                pl.lit(label).alias("horizon"),
+            )
+            changes.append(
+                merged.select(["currency", "tenor_years", "horizon", "change_pct"])
+            )
 
     if not changes:
         return {"changes": []}
