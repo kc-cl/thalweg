@@ -1,0 +1,94 @@
+{
+    "terms": {
+        "url": "https://www.bankofcanada.ca/terms/"
+    },
+    "groupDetail": {
+        "label": "Selected Benchmark Bond Yields",
+        "description": " ",
+        "link": "https://www.bankofcanada.ca/?p=39890"
+    },
+    "seriesDetail": {
+        "BD.CDN.2YR.DQ.YLD": {
+            "label": "2 year",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.3YR.DQ.YLD": {
+            "label": "3 year",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.5YR.DQ.YLD": {
+            "label": "5 year",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.7YR.DQ.YLD": {
+            "label": "7 year",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.10YR.DQ.YLD": {
+            "label": "10 year",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.LONG.DQ.YLD": {
+            "label": "Long-term",
+            "description": "Government of Canada benchmark bond yields",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        },
+        "BD.CDN.RRB.DQ.YLD": {
+            "label": "Long-term",
+            "description": "Real return bond",
+            "dimension": {
+                "key": "d",
+                "name": "Date"
+            }
+        }
+    },
+    "observations": [
+        {
+            "d": "2025-03-24",
+            "BD.CDN.2YR.DQ.YLD": {
+                "v": "2.54"
+            },
+            "BD.CDN.3YR.DQ.YLD": {
+                "v": "2.55"
+            },
+            "BD.CDN.5YR.DQ.YLD": {
+                "v": "2.70"
+            },
+            "BD.CDN.7YR.DQ.YLD": {
+                "v": "2.86"
+            },
+            "BD.CDN.10YR.DQ.YLD": {
+                "v": "3.06"
+            },
+            "BD.CDN.LONG.DQ.YLD": {
+                "v": "3.29"
+            },
+            "BD.CDN.RRB.DQ.YLD": {
+                "v": "1.43"
+            }
+        }
+    ]
+}
