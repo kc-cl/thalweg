@@ -286,3 +286,134 @@ async def spreads_history(
         "spreads", start_date=start_date, end_date=end_date, **kwargs
     )
     return {"spreads": _df_to_records(df)}
+
+
+# ---------------------------------------------------------------------------
+# PCA, fan chart & analog forecast endpoints (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/analytics/pca/scores")
+async def pca_scores(
+    currency: str | None = Query(None),
+) -> dict:
+    """Return PCA scores time series from derived storage.
+
+    Args:
+        currency: Filter by currency code (e.g. ``CAD``, ``USD``).
+    """
+    from thalweg import storage
+
+    kwargs: dict[str, str | float] = {}
+    if currency:
+        kwargs["currency"] = currency
+
+    df = storage.read_derived("pca_scores", **kwargs)
+    return {"scores": _df_to_records(df)}
+
+
+@router.get("/analytics/pca/loadings")
+async def pca_loadings(
+    currency: str | None = Query(None),
+) -> dict:
+    """Return PCA loadings per tenor and explained variance from derived storage.
+
+    Args:
+        currency: Filter by currency code (e.g. ``CAD``, ``USD``).
+    """
+    from thalweg import storage
+
+    kwargs: dict[str, str | float] = {}
+    if currency:
+        kwargs["currency"] = currency
+
+    df = storage.read_derived("pca_loadings", **kwargs)
+    if df.is_empty():
+        return {"loadings": [], "explained_variance": []}
+
+    # Extract explained variance as a separate list of unique entries
+    ev = (
+        df.select(["currency", "component", "explained_variance_ratio"])
+        .unique()
+        .sort("component")
+    )
+    return {
+        "loadings": _df_to_records(df.drop("explained_variance_ratio")),
+        "explained_variance": _df_to_records(ev),
+    }
+
+
+@router.get("/analytics/fan")
+async def analytics_fan(
+    currency: str = Query(...),
+    horizon: int = Query(21),
+) -> dict:
+    """Compute fan chart quantile bands for a currency.
+
+    Fits PCA on the currency's curve history and projects empirical
+    shock distributions at the requested horizon.
+
+    Args:
+        currency: Currency code (required).
+        horizon: Number of business days for the shock horizon.
+    """
+    from thalweg import storage
+    from thalweg.analytics.distributions import compute_shock_distribution
+    from thalweg.analytics.pca import fit_pca
+
+    curves = storage.read_curves(currency=currency)
+    if curves.is_empty():
+        return {"fan": [], "current": []}
+
+    pca_result = fit_pca(curves, currency)
+    if pca_result is None:
+        return {"fan": [], "current": []}
+
+    fan = compute_shock_distribution(pca_result, horizon_days=horizon)
+
+    # Current curve (latest date)
+    latest_date = curves["date"].max()
+    current = curves.filter(pl.col("date") == latest_date)
+
+    return {
+        "fan": _df_to_records(fan),
+        "current": _df_to_records(current),
+    }
+
+
+@router.get("/analytics/analogs")
+async def analytics_analogs(
+    currency: str = Query(...),
+    k: int = Query(20),
+    horizon: int = Query(63),
+) -> dict:
+    """Find analog dates and compute forecast paths.
+
+    Fits PCA on the currency's curve history, identifies the k nearest
+    historical analogs in PCA space, and tracks what happened to the
+    curve over the forecast horizon.
+
+    Args:
+        currency: Currency code (required).
+        k: Number of nearest analog dates to return.
+        horizon: Number of calendar days for the forecast horizon.
+    """
+    from thalweg import storage
+    from thalweg.analytics.forecasts import find_analogs, forecast_from_analogs
+    from thalweg.analytics.pca import fit_pca
+
+    curves = storage.read_curves(currency=currency)
+    if curves.is_empty():
+        return {"analogs": [], "forecasts": []}
+
+    pca_result = fit_pca(curves, currency)
+    if pca_result is None:
+        return {"analogs": [], "forecasts": []}
+
+    analogs = find_analogs(pca_result, k=k)
+    forecasts = forecast_from_analogs(curves, pca_result, k=k, horizon_days=horizon)
+
+    return {
+        "analogs": _df_to_records(analogs),
+        "forecasts": _df_to_records(forecasts),
+    }

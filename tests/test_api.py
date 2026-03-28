@@ -463,3 +463,177 @@ async def test_spreads_history_with_data(tmp_data_dir, client: AsyncClient) -> N
     body = resp.json()
     assert len(body["spreads"]) == 1
     assert body["spreads"][0]["pair"] == "USD-CAD"
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/pca/scores (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_pca_scores_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No derived data returns empty scores."""
+    resp = await client.get("/api/analytics/pca/scores")
+    assert resp.status_code == 200
+    assert resp.json() == {"scores": []}
+
+
+async def test_pca_scores_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded pca_scores parquet returns filtered records."""
+    scores_df = pl.DataFrame({
+        "date": [date(2024, 1, 15), date(2024, 1, 16), date(2024, 1, 15)],
+        "currency": ["USD", "USD", "CAD"],
+        "curve_type": ["govt_par", "govt_par", "govt_par"],
+        "pc1": [1.0, 1.1, 0.5],
+        "pc2": [0.2, 0.3, 0.1],
+        "pc3": [-0.1, -0.2, 0.0],
+    }).cast({"date": pl.Date, "pc1": pl.Float64, "pc2": pl.Float64, "pc3": pl.Float64})
+    scores_df.write_parquet(storage.DERIVED_DIR / "pca_scores.parquet")
+
+    # All scores
+    resp = await client.get("/api/analytics/pca/scores")
+    body = resp.json()
+    assert len(body["scores"]) == 3
+
+    # Filter by currency
+    resp = await client.get("/api/analytics/pca/scores", params={"currency": "USD"})
+    body = resp.json()
+    assert len(body["scores"]) == 2
+    assert all(r["currency"] == "USD" for r in body["scores"])
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/pca/loadings (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_pca_loadings_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No derived data returns empty loadings and explained_variance."""
+    resp = await client.get("/api/analytics/pca/loadings")
+    assert resp.status_code == 200
+    assert resp.json() == {"loadings": [], "explained_variance": []}
+
+
+async def test_pca_loadings_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded pca_loadings parquet returns loadings and explained_variance."""
+    loadings_df = pl.DataFrame({
+        "currency": ["USD"] * 6,
+        "curve_type": ["govt_par"] * 6,
+        "component": ["pc1", "pc1", "pc2", "pc2", "pc3", "pc3"],
+        "tenor_years": [2.0, 10.0, 2.0, 10.0, 2.0, 10.0],
+        "loading": [0.5, 0.5, -0.7, 0.7, 0.5, -0.5],
+        "explained_variance_ratio": [0.85, 0.85, 0.10, 0.10, 0.03, 0.03],
+    }).cast({
+        "tenor_years": pl.Float64,
+        "loading": pl.Float64,
+        "explained_variance_ratio": pl.Float64,
+    })
+    loadings_df.write_parquet(storage.DERIVED_DIR / "pca_loadings.parquet")
+
+    resp = await client.get("/api/analytics/pca/loadings", params={"currency": "USD"})
+    body = resp.json()
+
+    # Loadings should not contain explained_variance_ratio
+    assert len(body["loadings"]) == 6
+    assert "explained_variance_ratio" not in body["loadings"][0]
+    assert all(r["currency"] == "USD" for r in body["loadings"])
+
+    # Explained variance should be unique per component
+    assert len(body["explained_variance"]) == 3
+    ev_map = {r["component"]: r["explained_variance_ratio"] for r in body["explained_variance"]}
+    assert ev_map["pc1"] == pytest.approx(0.85)
+    assert ev_map["pc2"] == pytest.approx(0.10)
+    assert ev_map["pc3"] == pytest.approx(0.03)
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/fan (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_many_curves(
+    n_days: int = 60,
+    currency: str = "CAD",
+    base_date: date = date(2024, 1, 1),
+) -> None:
+    """Seed n_days of curve data so PCA has enough observations."""
+    import random
+
+    random.seed(42)
+    for i in range(n_days):
+        obs_date = base_date + __import__("datetime").timedelta(days=i)
+        # Small random variation to give PCA non-trivial components
+        base_yield = 3.0 + random.gauss(0, 0.1)
+        storage.append_curves(_make_curve(obs_date, currency=currency, base_yield=base_yield))
+
+
+async def test_fan_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No curve data returns empty fan and current."""
+    resp = await client.get("/api/analytics/fan", params={"currency": "CAD"})
+    assert resp.status_code == 200
+    assert resp.json() == {"fan": [], "current": []}
+
+
+async def test_fan_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded curves produce fan chart bands and current curve."""
+    _seed_many_curves(n_days=60, currency="CAD")
+
+    resp = await client.get(
+        "/api/analytics/fan", params={"currency": "CAD", "horizon": 21}
+    )
+    body = resp.json()
+
+    # Fan should have records
+    assert len(body["fan"]) > 0
+    assert all(r["currency"] == "CAD" for r in body["fan"])
+    assert all("quantile" in r for r in body["fan"])
+    assert all("tenor_years" in r for r in body["fan"])
+
+    # Current curve should have the latest date's data
+    assert len(body["current"]) > 0
+    assert all(r["currency"] == "CAD" for r in body["current"])
+
+
+async def test_fan_requires_currency(client: AsyncClient) -> None:
+    """Fan endpoint requires currency parameter."""
+    resp = await client.get("/api/analytics/fan")
+    assert resp.status_code == 422  # FastAPI validation error
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/analogs (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+async def test_analogs_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No curve data returns empty analogs and forecasts."""
+    resp = await client.get("/api/analytics/analogs", params={"currency": "CAD"})
+    assert resp.status_code == 200
+    assert resp.json() == {"analogs": [], "forecasts": []}
+
+
+async def test_analogs_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded curves produce analog dates and forecast paths."""
+    # Need enough data for PCA + analog search + forecast horizon
+    _seed_many_curves(n_days=150, currency="CAD")
+
+    resp = await client.get(
+        "/api/analytics/analogs",
+        params={"currency": "CAD", "k": 5, "horizon": 21},
+    )
+    body = resp.json()
+
+    # Should have analog dates
+    assert len(body["analogs"]) > 0
+    assert all(r["currency"] == "CAD" for r in body["analogs"])
+    assert all("analog_date" in r for r in body["analogs"])
+    assert all("distance" in r for r in body["analogs"])
+
+    # Should have forecast paths
+    assert len(body["forecasts"]) > 0
+    assert all(r["currency"] == "CAD" for r in body["forecasts"])
+
+
+async def test_analogs_requires_currency(client: AsyncClient) -> None:
+    """Analogs endpoint requires currency parameter."""
+    resp = await client.get("/api/analytics/analogs")
+    assert resp.status_code == 422  # FastAPI validation error
