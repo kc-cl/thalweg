@@ -255,9 +255,12 @@ def status() -> None:
             found = True
         for path in parquet_files:
             df = pl.read_parquet(path)
-            latest = df["date"].max()
             rows = df.shape[0]
-            click.echo(f"{path.name:<30} {str(latest):<15} {rows:>10,}")
+            if "date" in df.columns:
+                latest = str(df["date"].max())
+            else:
+                latest = "—"
+            click.echo(f"{path.name:<30} {latest:<15} {rows:>10,}")
 
     if not found:
         click.echo("No data files found.")
