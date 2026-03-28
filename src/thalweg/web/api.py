@@ -189,3 +189,93 @@ async def curves_changes() -> dict:
     if not changes:
         return {"changes": []}
     return {"changes": _df_to_records(pl.concat(changes))}
+
+
+# ---------------------------------------------------------------------------
+# History & regime endpoints (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/curves/dates")
+async def curves_dates(
+    currency: str | None = Query(None),
+) -> dict:
+    """Return sorted list of available curve dates.
+
+    Used by the Curve Explorer date slider to determine range.
+    """
+    from thalweg import storage
+
+    dates = storage.get_available_dates(currency=currency)
+    return {"dates": [d.isoformat() for d in dates]}
+
+
+@router.get("/regimes/latest")
+async def regimes_latest() -> dict:
+    """Return the most recent regime classification per currency."""
+    from thalweg import storage
+
+    df = storage.read_regimes()
+    if df.is_empty():
+        return {"regimes": []}
+    result = _latest_per_group(df, "currency")
+    return {"regimes": _df_to_records(result)}
+
+
+@router.get("/regimes")
+async def regimes(
+    currency: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+) -> dict:
+    """Query regime classification history with optional filters."""
+    from thalweg import storage
+
+    df = storage.read_regimes(
+        currency=currency, start_date=start_date, end_date=end_date
+    )
+    return {"regimes": _df_to_records(df)}
+
+
+@router.get("/analytics/slopes/history")
+async def slopes_history(
+    currency: str | None = Query(None),
+    slope_name: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+) -> dict:
+    """Return slope time series from derived storage."""
+    from thalweg import storage
+
+    kwargs: dict[str, str | float] = {}
+    if currency:
+        kwargs["currency"] = currency
+    if slope_name:
+        kwargs["slope_name"] = slope_name
+
+    df = storage.read_derived(
+        "slopes", start_date=start_date, end_date=end_date, **kwargs
+    )
+    return {"slopes": _df_to_records(df)}
+
+
+@router.get("/analytics/spreads/history")
+async def spreads_history(
+    pair: str | None = Query(None),
+    tenor_years: float | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+) -> dict:
+    """Return cross-market spread time series from derived storage."""
+    from thalweg import storage
+
+    kwargs: dict[str, str | float] = {}
+    if pair:
+        kwargs["pair"] = pair
+    if tenor_years is not None:
+        kwargs["tenor_years"] = tenor_years
+
+    df = storage.read_derived(
+        "spreads", start_date=start_date, end_date=end_date, **kwargs
+    )
+    return {"spreads": _df_to_records(df)}

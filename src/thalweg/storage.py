@@ -12,7 +12,7 @@ from pathlib import Path
 
 import polars as pl
 
-from thalweg.config import CURVES_DIR, RATES_DIR
+from thalweg.config import CURVES_DIR, DERIVED_DIR, RATES_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -239,3 +239,131 @@ def get_latest_rate_date(rate_name: str) -> date | None:
     )
     val = result["date"][0]
     return val
+
+
+# ---------------------------------------------------------------------------
+# Derived analytics storage (regimes, slopes history, etc.)
+# ---------------------------------------------------------------------------
+
+REGIME_DEDUP_KEYS = ["date", "currency", "curve_type"]
+
+
+def read_derived(
+    name: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    **filters: str | float,
+) -> pl.DataFrame:
+    """Read a derived parquet file with optional filters.
+
+    Args:
+        name: Base name without extension (e.g. ``'slopes'``, ``'regimes'``).
+        start_date: Include only dates on or after this date.
+        end_date: Include only dates on or before this date.
+        **filters: Column name/value pairs to filter on
+            (e.g. ``currency='USD'``, ``slope_name='2s10s'``).
+
+    Returns:
+        Filtered DataFrame, or empty DataFrame if file doesn't exist.
+    """
+    path = DERIVED_DIR / f"{name}.parquet"
+    if not path.exists():
+        return pl.DataFrame()
+
+    lf = pl.scan_parquet(path)
+
+    if start_date:
+        lf = lf.filter(pl.col("date") >= start_date)
+    if end_date:
+        lf = lf.filter(pl.col("date") <= end_date)
+    for col, val in filters.items():
+        if col in lf.collect_schema().names():
+            lf = lf.filter(pl.col(col) == val)
+
+    return lf.collect()
+
+
+def append_regimes(df: pl.DataFrame) -> None:
+    """Write regime classification data to derived storage.
+
+    Deduplicates on (date, currency, curve_type), keeping the most
+    recently appended values.
+
+    Args:
+        df: DataFrame with columns matching
+            ``analytics.regimes.REGIME_SCHEMA``.
+    """
+    path = DERIVED_DIR / "regimes.parquet"
+
+    if path.exists():
+        existing = pl.read_parquet(path)
+        combined = pl.concat([existing, df])
+    else:
+        combined = df
+
+    deduped = combined.unique(
+        subset=REGIME_DEDUP_KEYS, keep="last", maintain_order=True
+    )
+    deduped = deduped.sort(["date", "currency"])
+
+    deduped.write_parquet(path)
+    logger.info(
+        "Wrote %d rows to %s (was %d)",
+        deduped.shape[0],
+        path.name,
+        combined.shape[0],
+    )
+
+
+def read_regimes(
+    currency: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> pl.DataFrame:
+    """Read regime classification data with optional filters.
+
+    Args:
+        currency: Filter by currency code (e.g. ``'USD'``).
+        start_date: Include only dates on or after this date.
+        end_date: Include only dates on or before this date.
+
+    Returns:
+        Filtered DataFrame, or empty DataFrame if file doesn't exist.
+    """
+    from thalweg.analytics.regimes import REGIME_SCHEMA
+
+    path = DERIVED_DIR / "regimes.parquet"
+    if not path.exists():
+        return pl.DataFrame(schema=REGIME_SCHEMA)
+
+    lf = pl.scan_parquet(path)
+
+    if currency:
+        lf = lf.filter(pl.col("currency") == currency)
+    if start_date:
+        lf = lf.filter(pl.col("date") >= start_date)
+    if end_date:
+        lf = lf.filter(pl.col("date") <= end_date)
+
+    return lf.collect()
+
+
+def get_available_dates(currency: str | None = None) -> list[date]:
+    """Return sorted list of unique dates in curve data.
+
+    Args:
+        currency: If provided, return dates only for this currency.
+
+    Returns:
+        Sorted list of date objects.
+    """
+    paths = list(CURVES_DIR.glob("*.parquet"))
+    if not paths:
+        return []
+
+    lf = pl.scan_parquet(paths)
+    if currency:
+        lf = lf.filter(pl.col("currency") == currency)
+
+    dates = lf.select(pl.col("date").unique()).collect()["date"].sort().to_list()
+    return dates

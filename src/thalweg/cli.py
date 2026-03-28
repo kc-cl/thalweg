@@ -138,7 +138,12 @@ def backfill(source: str, start: click.DateTime, end: click.DateTime) -> None:
 def analyze() -> None:
     """Recompute derived analytics (spreads, slopes, curvature)."""
     from thalweg import storage
-    from thalweg.analytics import compute_cross_market_spreads, compute_curvature, compute_slopes
+    from thalweg.analytics import (
+        classify_regimes,
+        compute_cross_market_spreads,
+        compute_curvature,
+        compute_slopes,
+    )
     from thalweg.config import DERIVED_DIR
 
     curves = storage.read_curves()
@@ -162,6 +167,11 @@ def analyze() -> None:
     if not spreads.is_empty():
         spreads.write_parquet(DERIVED_DIR / "spreads.parquet")
         click.echo(f"  Wrote {spreads.shape[0]} spread records")
+
+    regimes = classify_regimes(curves)
+    if not regimes.is_empty():
+        storage.append_regimes(regimes)
+        click.echo(f"  Wrote {regimes.shape[0]} regime records")
 
     click.echo("Analytics complete.")
 

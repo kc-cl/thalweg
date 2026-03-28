@@ -54,19 +54,22 @@ async function fetchJSON(url) {
 }
 
 async function fetchAll() {
-  const [curvesRes, ratesRes, slopesRes, spreadsRes, changesRes] = await Promise.all([
-    fetchJSON('/api/curves/latest'),
-    fetchJSON('/api/rates/overnight'),
-    fetchJSON('/api/analytics/slopes'),
-    fetchJSON('/api/analytics/spreads'),
-    fetchJSON('/api/curves/changes'),
-  ]);
+  const [curvesRes, ratesRes, slopesRes, spreadsRes, changesRes, regimesRes] =
+    await Promise.all([
+      fetchJSON('/api/curves/latest'),
+      fetchJSON('/api/rates/overnight'),
+      fetchJSON('/api/analytics/slopes'),
+      fetchJSON('/api/analytics/spreads'),
+      fetchJSON('/api/curves/changes'),
+      fetchJSON('/api/regimes/latest'),
+    ]);
 
   renderCurves(curvesRes ? curvesRes.curves : []);
   renderRates(ratesRes ? ratesRes.rates : []);
   renderSlopes(
     slopesRes ? slopesRes.slopes : [],
     spreadsRes ? spreadsRes.spreads : [],
+    regimesRes ? regimesRes.regimes : [],
   );
   renderChanges(changesRes ? changesRes.changes : []);
 
@@ -247,7 +250,7 @@ function renderRates(rates) {
 // Slopes & spreads
 // ---------------------------------------------------------------------------
 
-function renderSlopes(slopes, spreads) {
+function renderSlopes(slopes, spreads, regimes) {
   const body = document.querySelector('#slopes-panel .panel-body');
   body.innerHTML = '';
 
@@ -335,7 +338,46 @@ function renderSlopes(slopes, spreads) {
     body.appendChild(spreadsSection);
   }
 
-  if ((!slopes || slopes.length === 0) && (!spreads || spreads.length === 0)) {
+  // --- Regimes section ---
+  if (regimes && regimes.length > 0) {
+    const regimeSection = document.createElement('div');
+    regimeSection.className = 'regime-section';
+
+    const regimeLabel = document.createElement('div');
+    regimeLabel.className = 'regime-label';
+    regimeLabel.textContent = 'Regime';
+    regimeSection.appendChild(regimeLabel);
+
+    const badgesEl = document.createElement('div');
+    badgesEl.className = 'regime-badges';
+
+    for (const cur of CURRENCY_ORDER) {
+      const r = regimes.find(x => x.currency === cur);
+      if (!r) continue;
+
+      const badge = document.createElement('span');
+      badge.className = 'regime-badge';
+      badge.style.borderColor = COLORS[cur] || '#555';
+
+      const curSpan = document.createElement('span');
+      curSpan.className = `regime-currency text-${cur.toLowerCase()}`;
+      curSpan.textContent = cur;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'regime-name';
+      nameSpan.textContent = r.regime.replace(/_/g, ' ');
+
+      badge.appendChild(curSpan);
+      badge.appendChild(nameSpan);
+      badgesEl.appendChild(badge);
+    }
+
+    regimeSection.appendChild(badgesEl);
+    body.appendChild(regimeSection);
+  }
+
+  if ((!slopes || slopes.length === 0) && (!spreads || spreads.length === 0) &&
+      (!regimes || regimes.length === 0)) {
     body.innerHTML = '<div class="empty-message">No slope/spread data available</div>';
   }
 }
@@ -356,70 +398,106 @@ function renderChanges(changes) {
   const horizons = ['1d', '1w', '1m', '1y'];
   const horizonLabels = { '1d': '1D', '1w': '1W', '1m': '1M', '1y': '1Y' };
 
-  // Pivot: group by currency, pick 10yr tenor (or closest)
+  // Group by currency -> horizon -> [{tenor_years, change_pct}]
   const byCurrency = {};
   for (const c of changes) {
     if (!byCurrency[c.currency]) byCurrency[c.currency] = {};
-    // Prefer 10yr, but store all and pick later
-    if (!byCurrency[c.currency][c.tenor_years]) {
-      byCurrency[c.currency][c.tenor_years] = {};
-    }
-    byCurrency[c.currency][c.tenor_years][c.horizon] = c.change_pct;
+    if (!byCurrency[c.currency][c.horizon]) byCurrency[c.currency][c.horizon] = [];
+    byCurrency[c.currency][c.horizon].push({
+      tenor_years: c.tenor_years,
+      change_bp: pctToBp(c.change_pct),
+    });
   }
 
-  // For each currency, find 10yr or nearest long-end tenor
-  const currencyRows = {};
-  for (const [cur, tenorMap] of Object.entries(byCurrency)) {
-    const tenors = Object.keys(tenorMap).map(Number).sort((a, b) => a - b);
-    const target = tenors.includes(10) ? 10 : tenors[tenors.length - 1];
-    currencyRows[cur] = { tenor: target, horizons: tenorMap[target] };
+  const currencies = CURRENCY_ORDER.filter(c => byCurrency[c]);
+  if (currencies.length === 0) {
+    body.innerHTML = '<div class="empty-message">No change data available</div>';
+    return;
   }
 
-  const table = document.createElement('table');
-  table.className = 'changes-table';
+  const grid = document.createElement('div');
+  grid.className = 'changes-grid';
 
-  // Header
-  const thead = document.createElement('thead');
-  const headerRow = document.createElement('tr');
-
-  const thCur = document.createElement('th');
-  thCur.textContent = '10yr \u0394';
-  headerRow.appendChild(thCur);
-
+  // Header row: empty corner + horizon labels
+  grid.appendChild(document.createElement('div'));
   for (const h of horizons) {
-    const th = document.createElement('th');
-    th.textContent = horizonLabels[h];
-    headerRow.appendChild(th);
+    const hdr = document.createElement('div');
+    hdr.className = 'ch-header';
+    hdr.textContent = horizonLabels[h];
+    grid.appendChild(hdr);
   }
-  thead.appendChild(headerRow);
-  table.appendChild(thead);
 
-  // Body rows
-  const tbody = document.createElement('tbody');
-  const sortedCurrencies = CURRENCY_ORDER.filter(c => currencyRows[c]);
+  // Mini chart dimensions
+  const cellW = 100;
+  const cellH = 44;
+  const pad = { top: 4, right: 4, bottom: 4, left: 4 };
+  const w = cellW - pad.left - pad.right;
+  const h = cellH - pad.top - pad.bottom;
 
-  for (const cur of sortedCurrencies) {
-    const row = document.createElement('tr');
+  for (const cur of currencies) {
+    // Row label
+    const label = document.createElement('div');
+    label.className = `ch-label text-${cur.toLowerCase()}`;
+    label.textContent = cur;
+    grid.appendChild(label);
 
-    const tdName = document.createElement('td');
-    tdName.className = `text-${cur.toLowerCase()}`;
-    tdName.textContent = cur;
-    row.appendChild(tdName);
+    for (const hz of horizons) {
+      const cell = document.createElement('div');
+      cell.className = 'ch-cell';
 
-    for (const h of horizons) {
-      const td = document.createElement('td');
-      const raw = currencyRows[cur].horizons[h];
-      const bp = pctToBp(raw);
-      td.className = signClass(bp);
-      td.textContent = fmtBp(bp);
-      row.appendChild(td);
+      const points = (byCurrency[cur][hz] || [])
+        .sort((a, b) => a.tenor_years - b.tenor_years);
+
+      if (points.length === 0) {
+        cell.innerHTML = '<span style="color:#555;font-size:0.7rem">\u2014</span>';
+        grid.appendChild(cell);
+        continue;
+      }
+
+      const bpValues = points.map(p => p.change_bp);
+      const maxAbs = Math.max(Math.abs(d3.min(bpValues)), Math.abs(d3.max(bpValues)), 1);
+
+      const x = d3.scaleLinear()
+        .domain([d3.min(points, p => p.tenor_years), d3.max(points, p => p.tenor_years)])
+        .range([0, w]);
+
+      const y = d3.scaleLinear()
+        .domain([-maxAbs, maxAbs])
+        .range([h, 0]);
+
+      const line = d3.line()
+        .x(p => x(p.tenor_years))
+        .y(p => y(p.change_bp))
+        .curve(d3.curveMonotoneX);
+
+      const svg = d3.select(cell)
+        .append('svg')
+        .attr('viewBox', `0 0 ${cellW} ${cellH}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${pad.left},${pad.top})`);
+
+      // Zero line
+      g.append('line')
+        .attr('x1', 0).attr('x2', w)
+        .attr('y1', y(0)).attr('y2', y(0))
+        .attr('stroke', '#333')
+        .attr('stroke-dasharray', '2,2');
+
+      // Change curve
+      g.append('path')
+        .datum(points)
+        .attr('d', line)
+        .attr('fill', 'none')
+        .attr('stroke', COLORS[cur] || '#999')
+        .attr('stroke-width', 1.5);
+
+      grid.appendChild(cell);
     }
-
-    tbody.appendChild(row);
   }
 
-  table.appendChild(tbody);
-  body.appendChild(table);
+  body.appendChild(grid);
 }
 
 // ---------------------------------------------------------------------------

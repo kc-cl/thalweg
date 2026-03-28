@@ -40,4 +40,9 @@ def create_app() -> FastAPI:
         """Render the dashboard template."""
         return templates.TemplateResponse(request, "dashboard.html")
 
+    @app.get("/explorer")
+    async def explorer(request: Request):  # type: ignore[no-untyped-def]
+        """Render the Curve Explorer template."""
+        return templates.TemplateResponse(request, "explorer.html")
+
     return app

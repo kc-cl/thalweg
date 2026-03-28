@@ -311,6 +311,278 @@ body {
   border-top: 1px solid #222233;
 }
 
+/* --------------------------------------------------- Regime badges */
+
+.regime-section {
+  margin-top: 16px;
+}
+
+.regime-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.regime-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.regime-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.regime-badge .regime-currency {
+  font-weight: 600;
+}
+
+.regime-badge .regime-name {
+  color: #aaa;
+  text-transform: lowercase;
+}
+
+/* -------------------------------------------- Change small multiples */
+
+.changes-grid {
+  display: grid;
+  grid-template-columns: auto repeat(4, 1fr);
+  gap: 4px;
+  align-items: center;
+}
+
+.changes-grid .ch-header {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #888;
+  text-align: center;
+  padding: 2px 4px;
+}
+
+.changes-grid .ch-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding-right: 8px;
+}
+
+.changes-grid .ch-cell {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+}
+
+.changes-grid .ch-cell svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* --------------------------------------------------- Header nav */
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-nav a {
+  color: #888;
+  text-decoration: none;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  transition: color 0.15s;
+}
+
+.header-nav a:hover {
+  color: #e0e0e0;
+}
+
+/* -------------------------------------------------------- Explorer page */
+
+.explorer {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 100px);
+}
+
+.explorer-controls {
+  padding: 8px 16px;
+}
+
+.slider-row {
+  width: 100%;
+}
+
+.date-slider {
+  width: 100%;
+  appearance: none;
+  height: 4px;
+  background: #222233;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.date-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3498db;
+  cursor: pointer;
+}
+
+.slider-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.slider-date {
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.overlay-input {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.overlay-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.overlay-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: rgba(52, 152, 219, 0.15);
+  border: 1px solid rgba(52, 152, 219, 0.3);
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.overlay-chip button {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.overlay-chip button:hover {
+  color: #e74c3c;
+}
+
+.btn-small {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-small:hover {
+  background: #222244;
+}
+
+.explorer-chart-panel {
+  min-height: 350px;
+}
+
+.explorer-history-panel {
+  min-height: 280px;
+}
+
+.explorer-spreads-panel {
+  min-height: 260px;
+}
+
+.explorer-select {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  margin-right: 6px;
+}
+
+.spreads-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  flex-shrink: 0;
+}
+
+.spreads-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  height: 100%;
+}
+
+.spread-chart-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 180px;
+}
+
+.spread-chart-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.spread-chart-body {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ---------------------------------------------------------- Responsive */
 
 @media (max-width: 900px) {

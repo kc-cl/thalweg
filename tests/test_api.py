@@ -24,8 +24,11 @@ def tmp_data_dir(tmp_path, monkeypatch):
     curves_dir.mkdir()
     rates_dir = tmp_path / "rates"
     rates_dir.mkdir()
+    derived_dir = tmp_path / "derived"
+    derived_dir.mkdir()
     monkeypatch.setattr(storage, "CURVES_DIR", curves_dir)
     monkeypatch.setattr(storage, "RATES_DIR", rates_dir)
+    monkeypatch.setattr(storage, "DERIVED_DIR", derived_dir)
     return tmp_path
 
 
@@ -96,6 +99,13 @@ async def test_dashboard_renders(client: AsyncClient) -> None:
     resp = await client.get("/dashboard")
     assert resp.status_code == 200
     assert "Thalweg" in resp.text
+
+
+async def test_explorer_renders(client: AsyncClient) -> None:
+    """GET /explorer should return 200 with HTML."""
+    resp = await client.get("/explorer")
+    assert resp.status_code == 200
+    assert "Curve Explorer" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -297,3 +307,159 @@ async def test_curves_changes_with_data(tmp_data_dir, client: AsyncClient) -> No
     one_d = [c for c in body["changes"] if c["horizon"] == "1d" and c["tenor_years"] == 2.0]
     assert len(one_d) == 1
     assert one_d[0]["change_pct"] == pytest.approx(0.1)
+
+
+# ---------------------------------------------------------------------------
+# /api/curves/dates (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_curves_dates_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No data returns empty dates list."""
+    resp = await client.get("/api/curves/dates")
+    assert resp.status_code == 200
+    assert resp.json() == {"dates": []}
+
+
+async def test_curves_dates_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded curves return sorted unique dates."""
+    storage.append_curves(_make_curve(date(2024, 1, 15), currency="CAD"))
+    storage.append_curves(_make_curve(date(2024, 3, 10), currency="CAD"))
+
+    resp = await client.get("/api/curves/dates")
+    body = resp.json()
+    assert body["dates"] == ["2024-01-15", "2024-03-10"]
+
+
+async def test_curves_dates_filtered(tmp_data_dir, client: AsyncClient) -> None:
+    """Currency filter restricts dates to that currency."""
+    storage.append_curves(_make_curve(date(2024, 1, 15), currency="CAD"))
+    storage.append_curves(_make_curve(date(2024, 1, 20), currency="USD"))
+
+    resp = await client.get("/api/curves/dates", params={"currency": "CAD"})
+    body = resp.json()
+    assert body["dates"] == ["2024-01-15"]
+
+
+# ---------------------------------------------------------------------------
+# /api/regimes (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_regime_data(
+    obs_date: date, currency: str = "USD", regime: str = "normal",
+) -> pl.DataFrame:
+    return pl.DataFrame({
+        "date": [obs_date],
+        "currency": [currency],
+        "curve_type": ["govt_par"],
+        "regime": [regime],
+        "slope_2s10s_bp": [50.0],
+        "level_10y": [4.0],
+    }).cast({"date": pl.Date, "slope_2s10s_bp": pl.Float64, "level_10y": pl.Float64})
+
+
+async def test_regimes_latest_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No regime data returns empty list."""
+    resp = await client.get("/api/regimes/latest")
+    assert resp.status_code == 200
+    assert resp.json() == {"regimes": []}
+
+
+async def test_regimes_latest_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Returns latest regime per currency."""
+    df = pl.concat([
+        _make_regime_data(date(2024, 1, 15), "USD", "normal"),
+        _make_regime_data(date(2024, 1, 20), "USD", "inverted"),
+        _make_regime_data(date(2024, 1, 18), "CAD", "flat"),
+    ])
+    storage.append_regimes(df)
+
+    resp = await client.get("/api/regimes/latest")
+    body = resp.json()
+    assert len(body["regimes"]) == 2
+    regimes_map = {r["currency"]: r["regime"] for r in body["regimes"]}
+    assert regimes_map["USD"] == "inverted"
+    assert regimes_map["CAD"] == "flat"
+
+
+async def test_regimes_query_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No regime data returns empty list."""
+    resp = await client.get("/api/regimes")
+    assert resp.status_code == 200
+    assert resp.json() == {"regimes": []}
+
+
+async def test_regimes_query_filtered(tmp_data_dir, client: AsyncClient) -> None:
+    """Currency filter restricts results."""
+    df = pl.concat([
+        _make_regime_data(date(2024, 1, 15), "USD", "normal"),
+        _make_regime_data(date(2024, 1, 15), "CAD", "flat"),
+    ])
+    storage.append_regimes(df)
+
+    resp = await client.get("/api/regimes", params={"currency": "USD"})
+    body = resp.json()
+    assert len(body["regimes"]) == 1
+    assert body["regimes"][0]["currency"] == "USD"
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/slopes/history (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_slopes_history_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No derived data returns empty list."""
+    resp = await client.get("/api/analytics/slopes/history")
+    assert resp.status_code == 200
+    assert resp.json() == {"slopes": []}
+
+
+async def test_slopes_history_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded slopes parquet returns filtered results."""
+    slopes_df = pl.DataFrame({
+        "date": [date(2024, 1, 15), date(2024, 1, 15)],
+        "currency": ["USD", "CAD"],
+        "curve_type": ["govt_par", "govt_par"],
+        "slope_name": ["2s10s", "2s10s"],
+        "value_bp": [50.0, 80.0],
+    }).cast({"date": pl.Date, "value_bp": pl.Float64})
+    slopes_df.write_parquet(storage.DERIVED_DIR / "slopes.parquet")
+
+    resp = await client.get(
+        "/api/analytics/slopes/history", params={"currency": "USD"}
+    )
+    body = resp.json()
+    assert len(body["slopes"]) == 1
+    assert body["slopes"][0]["currency"] == "USD"
+
+
+# ---------------------------------------------------------------------------
+# /api/analytics/spreads/history (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_spreads_history_empty(tmp_data_dir, client: AsyncClient) -> None:
+    """No derived data returns empty list."""
+    resp = await client.get("/api/analytics/spreads/history")
+    assert resp.status_code == 200
+    assert resp.json() == {"spreads": []}
+
+
+async def test_spreads_history_with_data(tmp_data_dir, client: AsyncClient) -> None:
+    """Seeded spreads parquet returns filtered results."""
+    spreads_df = pl.DataFrame({
+        "date": [date(2024, 1, 15), date(2024, 1, 15)],
+        "pair": ["USD-CAD", "USD-EUR"],
+        "tenor_years": [10.0, 10.0],
+        "spread_bp": [45.0, -30.0],
+    }).cast({"date": pl.Date, "tenor_years": pl.Float64, "spread_bp": pl.Float64})
+    spreads_df.write_parquet(storage.DERIVED_DIR / "spreads.parquet")
+
+    resp = await client.get(
+        "/api/analytics/spreads/history", params={"pair": "USD-CAD"}
+    )
+    body = resp.json()
+    assert len(body["spreads"]) == 1
+    assert body["spreads"][0]["pair"] == "USD-CAD"
