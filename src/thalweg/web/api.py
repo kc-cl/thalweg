@@ -92,14 +92,31 @@ async def curves(
 
 @router.get("/rates/overnight")
 async def rates_overnight() -> dict:
-    """Return the latest overnight rate for each rate name."""
+    """Return the latest overnight rate for each rate name with daily change."""
     from thalweg import storage
 
     df = storage.read_rates()
     if df.is_empty():
         return {"rates": []}
     result = _latest_per_group(df, "rate_name")
-    return {"rates": _df_to_records(result)}
+    records = _df_to_records(result)
+
+    # Enrich with prior-day value and change in basis points
+    for rec in records:
+        rate_name = rec["rate_name"]
+        latest_date = df.filter(pl.col("rate_name") == rate_name)["date"].max()
+        prior = df.filter(
+            (pl.col("rate_name") == rate_name) & (pl.col("date") < latest_date)
+        )
+        if prior.is_empty():
+            rec["change_bp"] = None
+        else:
+            prev_date = prior["date"].max()
+            prev_row = prior.filter(pl.col("date") == prev_date)
+            prev_val = prev_row["value_pct"][0]
+            rec["change_bp"] = round((rec["value_pct"] - prev_val) * 100, 2)
+
+    return {"rates": records}
 
 
 @router.get("/analytics/slopes")

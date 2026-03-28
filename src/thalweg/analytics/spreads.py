@@ -8,7 +8,7 @@ from __future__ import annotations
 import polars as pl
 
 # Default slope pairs: (short_tenor, long_tenor) in years
-DEFAULT_SLOPE_PAIRS: list[tuple[float, float]] = [(2, 10), (2, 30), (5, 30)]
+DEFAULT_SLOPE_PAIRS: list[tuple[float, float]] = [(2, 10), (2, 30), (5, 30), (5, 10), (5, 20)]
 
 # Default cross-market currency pairs: (currency_a, currency_b)
 DEFAULT_CROSS_MARKET_PAIRS: list[tuple[str, str]] = [
@@ -16,6 +16,7 @@ DEFAULT_CROSS_MARKET_PAIRS: list[tuple[str, str]] = [
     ("USD", "EUR"),
     ("EUR", "GBP"),
     ("CAD", "GBP"),
+    ("CAD", "EUR"),
 ]
 
 # Output schemas for empty-frame returns

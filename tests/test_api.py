@@ -209,6 +209,10 @@ async def test_rates_overnight_with_data(tmp_data_dir, client: AsyncClient) -> N
     assert rates_map["CORRA"]["date"] == "2024-01-16"
     assert rates_map["CORRA"]["value_pct"] == pytest.approx(4.6)
     assert rates_map["SOFR"]["value_pct"] == pytest.approx(5.3)
+    # CORRA has a prior day so change_bp should be present
+    assert rates_map["CORRA"]["change_bp"] == pytest.approx((4.6 - 4.5) * 100)
+    # SOFR has only one day so change_bp should be null
+    assert rates_map["SOFR"]["change_bp"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +234,7 @@ async def test_analytics_slopes(tmp_data_dir, client: AsyncClient) -> None:
     resp = await client.get("/api/analytics/slopes")
     body = resp.json()
     slope_names = {s["slope_name"] for s in body["slopes"]}
-    assert slope_names == {"2s10s", "2s30s", "5s30s"}
+    assert slope_names == {"2s10s", "2s30s", "5s30s", "5s10s"}
     # Verify a specific slope value: 2s10s = (10yr - 2yr) * 100 bp
     slopes_map = {s["slope_name"]: s["value_bp"] for s in body["slopes"]}
     # base_yield=3.0, 2yr=3.0, 10yr=3.5 -> 50bp

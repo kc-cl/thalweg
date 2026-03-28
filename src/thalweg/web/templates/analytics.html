@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Thalweg — Analytics</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
@@ -37,17 +38,23 @@
 
     <!-- Panel 1: Phase Space -->
     <section class="panel analytics-panel tall" id="phase-panel">
-      <div class="panel-title">Phase Space: PC1 vs PC2</div>
+      <div class="panel-title">Phase Space: PC1 vs PC2 <span class="info-tip" data-tip="All historical yield curve shapes for this currency, compressed to two dimensions via PCA. PC1 captures overall level, PC2 captures slope. The white trail shows the last 90 trading days.">ⓘ</span></div>
       <div class="panel-body" id="phase-chart"></div>
     </section>
 
-    <!-- Panel 2: Fan Chart -->
+    <!-- Panel 2: Projection Cone -->
     <section class="panel analytics-panel" id="fan-panel">
-      <div class="panel-title">Shock Fan Chart</div>
+      <div class="panel-title">Projection Cone — 3M Horizon</div>
       <div class="panel-body" id="fan-chart"></div>
     </section>
 
-    <!-- Panel 3: Conditional Forecast -->
+    <!-- Panel 3: Shift Fan -->
+    <section class="panel analytics-panel" id="shift-panel">
+      <div class="panel-title">Shift Fan — 3M Horizon</div>
+      <div class="panel-body" id="shift-chart"></div>
+    </section>
+
+    <!-- Panel 4: Conditional Forecast -->
     <section class="panel analytics-panel" id="forecast-panel">
       <div class="panel-title">Conditional Forecast (Analog Spaghetti)</div>
       <div class="panel-body" id="forecast-chart"></div>

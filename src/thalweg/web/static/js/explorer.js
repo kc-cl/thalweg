@@ -28,6 +28,26 @@ let allDates = [];
 let overlayDates = [];  // max 3
 let currentCurves = [];
 let overlayCurves = {};  // date -> curves[]
+let isPlaying = false;
+let loopEnabled = false;
+
+const PLAY_SPEEDS = {
+  slow: { step: 1, delay: 100 },
+  med:  { step: 1, delay: 16 },
+  fast: { step: 3, delay: 16 },
+  max:  { step: 8, delay: 0 },
+};
+let playConfig = PLAY_SPEEDS.med;
+
+// Prefetch cache for playback
+let curveCache = new Map();
+let regimeCache = new Map();
+let prefetched = false;
+let globalYExtent = null;
+
+// Persistent SVG for animated playback
+let persistentSVG = null;
+let persistentScales = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +80,45 @@ async function init() {
   slider.addEventListener('input', onSliderChange);
   document.getElementById('add-overlay-btn').addEventListener('click', onAddOverlay);
   document.getElementById('overlay-date-input').addEventListener('change', onOverlayDatePicked);
+  document.getElementById('play-btn').addEventListener('click', togglePlay);
+  document.getElementById('speed-select').addEventListener('change', function() {
+    playConfig = PLAY_SPEEDS[this.value] || PLAY_SPEEDS.med;
+  });
+  document.getElementById('loop-btn').addEventListener('click', toggleLoop);
+
+  // Keyboard navigation: arrows step dates, space toggles play
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (allDates.length === 0) return;
+
+    if (e.key === ' ') {
+      e.preventDefault();
+      togglePlay();
+      return;
+    }
+
+    const slider = document.getElementById('date-slider');
+    let idx = parseInt(slider.value);
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      stopPlayback();
+      idx = Math.max(0, idx - 1);
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      stopPlayback();
+      idx = Math.min(allDates.length - 1, idx + 1);
+    } else {
+      return;
+    }
+
+    slider.value = idx;
+    const selectedDate = allDates[idx];
+    document.getElementById('slider-date-display').textContent = selectedDate;
+    clearTimeout(sliderDebounce);
+    sliderDebounce = setTimeout(() => loadDate(selectedDate), 80);
+  });
 
   await loadDate(allDates[allDates.length - 1]);
 }
@@ -71,6 +130,7 @@ async function init() {
 let sliderDebounce;
 
 function onSliderChange() {
+  stopPlayback();
   const idx = parseInt(this.value);
   const selectedDate = allDates[idx];
   document.getElementById('slider-date-display').textContent = selectedDate;
@@ -91,6 +151,46 @@ async function loadDate(dateStr) {
   currentCurves = curvesRes ? curvesRes.curves : [];
   renderExplorerCurves();
   renderExplorerRegimes(regimesRes ? regimesRes.regimes : []);
+}
+
+// ---------------------------------------------------------------------------
+// Prefetch cache
+// ---------------------------------------------------------------------------
+
+async function prefetchAllData() {
+  const [curvesRes, regimesRes] = await Promise.all([
+    fetchJSON('/api/curves'),
+    fetchJSON('/api/regimes'),
+  ]);
+
+  curveCache.clear();
+  regimeCache.clear();
+
+  if (curvesRes && curvesRes.curves) {
+    for (const c of curvesRes.curves) {
+      if (!curveCache.has(c.date)) curveCache.set(c.date, []);
+      curveCache.get(c.date).push(c);
+    }
+  }
+
+  if (regimesRes && regimesRes.regimes) {
+    for (const r of regimesRes.regimes) {
+      if (!regimeCache.has(r.date)) regimeCache.set(r.date, []);
+      regimeCache.get(r.date).push(r);
+    }
+  }
+
+  // Compute fixed y-extent across all dates
+  let globalMax = 0;
+  for (const curves of curveCache.values()) {
+    for (const c of curves) {
+      if (c.yield_pct > globalMax) globalMax = c.yield_pct;
+    }
+  }
+  const pad = globalMax * 0.1 || 0.5;
+  globalYExtent = [0, globalMax + pad];
+
+  prefetched = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +237,211 @@ function renderOverlayChips() {
 }
 
 // ---------------------------------------------------------------------------
+// Persistent SVG for animated playback
+// ---------------------------------------------------------------------------
+
+function initPersistentSVG() {
+  const container = document.getElementById('explorer-curves');
+  container.innerHTML = '';
+
+  const rect = container.getBoundingClientRect();
+  const margin = { top: 20, right: 100, bottom: 40, left: 50 };
+  const width = rect.width - margin.left - margin.right;
+  const height = rect.height - margin.top - margin.bottom;
+  if (width <= 0 || height <= 0) return;
+
+  // Compute global tenor range from cache
+  let minTenor = Infinity, maxTenor = -Infinity;
+  for (const curves of curveCache.values()) {
+    for (const c of curves) {
+      if (c.tenor_years < minTenor) minTenor = c.tenor_years;
+      if (c.tenor_years > maxTenor) maxTenor = c.tenor_years;
+    }
+  }
+
+  const x = d3.scaleLinear().domain([minTenor, maxTenor]).range([0, width]);
+  const y = d3.scaleLinear().domain(globalYExtent).range([height, 0]);
+  persistentScales = { x, y, width, height, margin };
+
+  const svg = d3.select(container).append('svg')
+    .attr('viewBox', `0 0 ${rect.width} ${rect.height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Grid
+  g.append('g').attr('class', 'grid').attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickSize(-height).tickFormat(''));
+  g.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''));
+
+  // Axes
+  g.append('g').attr('class', 'axis').attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).ticks(8).tickFormat(d => d + 'y'));
+  g.append('g').attr('class', 'axis')
+    .call(d3.axisLeft(y).ticks(6).tickFormat(d => d.toFixed(1) + '%'));
+
+  // Axis labels
+  g.append('text').attr('class', 'axis-label')
+    .attr('x', width / 2).attr('y', height + 35).attr('text-anchor', 'middle')
+    .text('Tenor (years)');
+  g.append('text').attr('class', 'axis-label')
+    .attr('transform', 'rotate(-90)').attr('x', -height / 2).attr('y', -40)
+    .attr('text-anchor', 'middle').text('Yield (%)');
+
+  // Groups for animated elements
+  g.append('g').attr('class', 'curves-group');
+  g.append('g').attr('class', 'dots-group');
+
+  // Legend
+  const legendX = width + 12;
+  CURRENCY_ORDER.forEach((currency, i) => {
+    const lg = g.append('g').attr('class', 'legend-item')
+      .attr('transform', `translate(${legendX}, ${i * 22})`);
+    lg.append('circle').attr('r', 5).attr('fill', COLORS[currency]);
+    lg.append('text').attr('x', 12).attr('dy', '0.35em').attr('fill', '#e0e0e0')
+      .attr('font-size', '12px').text(currency);
+  });
+
+  persistentSVG = svg;
+}
+
+function animateToDate(dateStr, transitionMs) {
+  if (!persistentSVG || !persistentScales) return;
+  const { x, y } = persistentScales;
+
+  const curves = curveCache.get(dateStr) || [];
+  const byCurrency = d3.group(curves, d => d.currency);
+
+  const line = d3.line()
+    .x(d => x(d.tenor_years))
+    .y(d => y(d.yield_pct))
+    .curve(d3.curveMonotoneX);
+
+  const curvesGroup = persistentSVG.select('.curves-group');
+  const dotsGroup = persistentSVG.select('.dots-group');
+
+  for (const cur of CURRENCY_ORDER) {
+    const points = byCurrency.get(cur);
+    const sorted = points ? [...points].sort((a, b) => a.tenor_years - b.tenor_years) : [];
+    const color = COLORS[cur] || '#999';
+
+    // Path
+    let path = curvesGroup.select(`path[data-currency="${cur}"]`);
+    if (path.empty() && sorted.length > 0) {
+      path = curvesGroup.append('path')
+        .attr('data-currency', cur)
+        .attr('class', 'curve-line')
+        .attr('stroke', color)
+        .attr('fill', 'none')
+        .attr('stroke-width', 2);
+    }
+    if (sorted.length > 0) {
+      path.datum(sorted)
+        .transition().duration(transitionMs).ease(d3.easeLinear)
+        .attr('d', line);
+    } else if (!path.empty()) {
+      path.remove();
+    }
+
+    // Dots — keyed by tenor
+    const dots = dotsGroup.selectAll(`circle[data-currency="${cur}"]`)
+      .data(sorted, d => d.tenor_years);
+
+    dots.enter().append('circle')
+      .attr('data-currency', cur)
+      .attr('r', 3)
+      .attr('fill', color)
+      .attr('cx', d => x(d.tenor_years))
+      .attr('cy', d => y(d.yield_pct));
+
+    dots.transition().duration(transitionMs).ease(d3.easeLinear)
+      .attr('cx', d => x(d.tenor_years))
+      .attr('cy', d => y(d.yield_pct));
+
+    dots.exit().remove();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Playback controls
+// ---------------------------------------------------------------------------
+
+function togglePlay() {
+  if (isPlaying) {
+    stopPlayback();
+  } else {
+    startPlayback();
+  }
+}
+
+async function startPlayback() {
+  if (allDates.length === 0) return;
+  isPlaying = true;
+  document.getElementById('play-btn').innerHTML = '&#9208;';
+
+  if (!prefetched) {
+    document.getElementById('play-btn').textContent = '...';
+    await prefetchAllData();
+    if (!isPlaying) return;  // stopped during prefetch
+    document.getElementById('play-btn').innerHTML = '&#9208;';
+  }
+
+  initPersistentSVG();
+  stepForward();
+}
+
+function stopPlayback() {
+  isPlaying = false;
+  document.getElementById('play-btn').innerHTML = '&#9654;';
+  persistentSVG = null;
+  persistentScales = null;
+  // Re-render with the standard (full-featured) renderer
+  renderExplorerCurves();
+}
+
+function stepForward() {
+  if (!isPlaying) return;
+
+  const slider = document.getElementById('date-slider');
+  let idx = parseInt(slider.value);
+
+  if (idx >= allDates.length - 1) {
+    if (loopEnabled) {
+      idx = 0;
+    } else {
+      stopPlayback();
+      return;
+    }
+  } else {
+    idx = Math.min(idx + playConfig.step, allDates.length - 1);
+  }
+
+  slider.value = idx;
+  const dateStr = allDates[idx];
+  document.getElementById('slider-date-display').textContent = dateStr;
+  document.getElementById('header-date').textContent = dateStr;
+
+  // Update state from cache
+  currentCurves = curveCache.get(dateStr) || [];
+  renderExplorerRegimes(regimeCache.get(dateStr) || []);
+
+  // Animate curves
+  const transitionMs = playConfig.delay > 0 ? playConfig.delay : 16;
+  animateToDate(dateStr, transitionMs);
+
+  if (isPlaying) {
+    const frameDelay = Math.max(playConfig.delay, 16);
+    setTimeout(stepForward, frameDelay);
+  }
+}
+
+function toggleLoop() {
+  loopEnabled = !loopEnabled;
+  document.getElementById('loop-btn').classList.toggle('active', loopEnabled);
+}
+
+// ---------------------------------------------------------------------------
 // Curve chart (shared renderer)
 // ---------------------------------------------------------------------------
 
@@ -172,16 +477,15 @@ function renderExplorerCurves() {
 
   const allTenors = allPoints.map(d => d.tenor_years);
   const allYields = allPoints.map(d => d.yield_pct);
-  const yMin = d3.min(allYields);
   const yMax = d3.max(allYields);
-  const yPad = (yMax - yMin) * 0.1 || 0.5;
+  const yPad = yMax * 0.1 || 0.5;
 
   const x = d3.scaleLinear()
     .domain([d3.min(allTenors), d3.max(allTenors)])
     .range([0, width]);
 
   const y = d3.scaleLinear()
-    .domain([yMin - yPad, yMax + yPad])
+    .domain([0, yMax + yPad])
     .range([height, 0]);
 
   // Grid
@@ -212,6 +516,7 @@ function renderExplorerCurves() {
   // Draw overlay curves first (dashed, dim)
   for (const [dateStr, curves] of Object.entries(overlayCurves)) {
     const byCurrency = d3.group(curves, d => d.currency);
+    let labeled = false;
     for (const [currency, points] of byCurrency) {
       const sorted = [...points].sort((a, b) => a.tenor_years - b.tenor_years);
       g.append('path')
@@ -221,6 +526,20 @@ function renderExplorerCurves() {
         .attr('stroke', COLORS[currency] || '#555')
         .attr('opacity', 0.35)
         .attr('stroke-dasharray', '4,3');
+
+      // Date label at rightmost point (first currency only to avoid clutter)
+      if (!labeled && sorted.length > 0) {
+        const lastPt = sorted[sorted.length - 1];
+        g.append('text')
+          .attr('x', x(lastPt.tenor_years) + 4)
+          .attr('y', y(lastPt.yield_pct))
+          .attr('dy', '0.35em')
+          .attr('fill', COLORS[currency] || '#555')
+          .attr('font-size', '9px')
+          .attr('opacity', 0.5)
+          .text(dateStr);
+        labeled = true;
+      }
     }
   }
 

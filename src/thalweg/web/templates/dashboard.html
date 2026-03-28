@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Thalweg — Yield Curve Observatory</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
   <header class="header">
-    <h1>Curveboard</h1>
+    <h1>Thalweg</h1>
     <nav class="header-nav">
       <a href="/explorer">Explorer</a>
       <a href="/analytics">Analytics</a>
@@ -21,25 +22,25 @@
   <main class="dashboard">
     <!-- Top-left: yield curves -->
     <section class="panel" id="curves-panel">
-      <div class="panel-title">Yield Curves — Today</div>
+      <div class="panel-title">Yield Curves — Today <span class="info-tip" data-tip="Sovereign government yield curves for four major markets. Each line connects observed maturities from overnight to 30 years.">ⓘ</span></div>
       <div class="panel-body" id="curves-chart"></div>
     </section>
 
     <!-- Top-right: changes vs prior periods -->
     <section class="panel" id="changes-panel">
-      <div class="panel-title">Curve Changes</div>
+      <div class="panel-title">Curve History <span class="info-tip" data-tip="Each chart shows one currency's yield curve at five points in time. Brightest line is today; progressively fainter lines show 1 day, 1 week, 1 month, and 1 year ago.">ⓘ</span></div>
       <div class="panel-body"></div>
     </section>
 
     <!-- Bottom-left: overnight rates -->
     <section class="panel" id="rates-panel">
-      <div class="panel-title">Key Rates</div>
+      <div class="panel-title">Key Rates <span class="info-tip" data-tip="Overnight risk-free benchmark rates: CORRA (Canada), SOFR (US), €STR (Eurozone), SONIA (UK). Arrows show the 1-day change.">ⓘ</span></div>
       <div class="panel-body"></div>
     </section>
 
     <!-- Bottom-right: slopes and spreads -->
     <section class="panel" id="slopes-panel">
-      <div class="panel-title">Slopes &amp; Spreads</div>
+      <div class="panel-title">Slopes &amp; Spreads <span class="info-tip" data-tip="Slopes measure the yield gap between two tenors on the same curve. Spreads compare the same tenor across countries. Regime classifies each curve shape.">ⓘ</span></div>
       <div class="panel-body"></div>
     </section>
   </main>

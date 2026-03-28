@@ -9,6 +9,12 @@ const COLORS = {
 
 const CURRENCY_ORDER = ['CAD', 'USD', 'EUR', 'GBP'];
 
+const SPREAD_DISPLAY = {
+  'USD-CAD': { name: 'GoC\u2013UST', sign: -1 },
+  'EUR-GBP': { name: 'Bund\u2013Gilt', sign: 1 },
+  'CAD-EUR': { name: 'GoC\u2013Bund', sign: 1 },
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -54,6 +60,12 @@ async function fetchJSON(url) {
 }
 
 async function fetchAll() {
+  // Show loading indicators
+  for (const sel of ['#curves-chart', '#rates-panel .panel-body', '#slopes-panel .panel-body', '#changes-panel .panel-body']) {
+    const el = document.querySelector(sel);
+    if (el) el.innerHTML = '<div class="loading-indicator">Loading\u2026</div>';
+  }
+
   const [curvesRes, ratesRes, slopesRes, spreadsRes, changesRes, regimesRes] =
     await Promise.all([
       fetchJSON('/api/curves/latest'),
@@ -71,7 +83,7 @@ async function fetchAll() {
     spreadsRes ? spreadsRes.spreads : [],
     regimesRes ? regimesRes.regimes : [],
   );
-  renderChanges(changesRes ? changesRes.changes : []);
+  renderChanges(changesRes ? changesRes.changes : [], curvesRes ? curvesRes.curves : []);
 
   // Update header date from curve data
   if (curvesRes && curvesRes.curves && curvesRes.curves.length > 0) {
@@ -242,6 +254,23 @@ function renderRates(rates) {
 
     row.appendChild(name);
     row.appendChild(valueWrap);
+
+    if (rate.change_bp != null) {
+      const change = document.createElement('span');
+      const absBp = Math.abs(Math.round(rate.change_bp));
+      if (rate.change_bp > 0.5) {
+        change.className = 'rate-change positive';
+        change.textContent = `\u25b2 ${absBp}bp`;
+      } else if (rate.change_bp < -0.5) {
+        change.className = 'rate-change negative';
+        change.textContent = `\u25bc ${absBp}bp`;
+      } else {
+        change.className = 'rate-change';
+        change.textContent = '\u2014';
+      }
+      row.appendChild(change);
+    }
+
     body.appendChild(row);
   }
 }
@@ -314,22 +343,27 @@ function renderSlopes(slopes, spreads, regimes) {
     spreadsLabel.textContent = 'Cross-Market Spreads (10yr)';
     spreadsSection.appendChild(spreadsLabel);
 
-    // Filter to 10yr spreads for cleanliness
+    // Filter to 10yr spreads and map to friendly names
     const tenYr = spreads.filter(s => s.tenor_years === 10.0);
     const shown = tenYr.length > 0 ? tenYr : spreads;
 
     for (const s of shown) {
+      const display = SPREAD_DISPLAY[s.pair];
+      if (!display) continue;
+
+      const adjustedBp = s.spread_bp * display.sign;
+
       const row = document.createElement('div');
       row.className = 'spread-row';
 
       const pair = document.createElement('span');
       pair.className = 'spread-pair';
-      pair.textContent = s.pair + (s.tenor_years ? ` ${s.tenor_years}yr` : '');
+      pair.textContent = display.name;
       row.appendChild(pair);
 
       const val = document.createElement('span');
-      val.className = `spread-value ${signClass(s.spread_bp)}`;
-      val.textContent = fmtBp(s.spread_bp);
+      val.className = `spread-value ${signClass(adjustedBp)}`;
+      val.textContent = fmtBp(adjustedBp);
       row.appendChild(val);
 
       spreadsSection.appendChild(row);
@@ -383,121 +417,169 @@ function renderSlopes(slopes, spreads, regimes) {
 }
 
 // ---------------------------------------------------------------------------
-// Curve changes table
+// Curve history — 2×2 grid, one chart per currency with overlaid time traces
 // ---------------------------------------------------------------------------
 
-function renderChanges(changes) {
+const TRACE_STYLES = [
+  { key: 'today', label: 'Now',  opacity: 1.0,  width: 2,   dash: null },
+  { key: '1d',    label: '1D',   opacity: 0.55, width: 1.5, dash: null },
+  { key: '1w',    label: '1W',   opacity: 0.35, width: 1,   dash: null },
+  { key: '1m',    label: '1M',   opacity: 0.2,  width: 1,   dash: null },
+  { key: '1y',    label: '1Y',   opacity: 0.12, width: 1,   dash: '4,3' },
+];
+
+function renderChanges(changes, currentCurves) {
   const body = document.querySelector('#changes-panel .panel-body');
   body.innerHTML = '';
 
-  if (!changes || changes.length === 0) {
-    body.innerHTML = '<div class="empty-message">No change data available</div>';
+  if ((!changes || changes.length === 0) || (!currentCurves || currentCurves.length === 0)) {
+    body.innerHTML = '<div class="empty-message">No curve history available</div>';
     return;
   }
 
-  const horizons = ['1d', '1w', '1m', '1y'];
-  const horizonLabels = { '1d': '1D', '1w': '1W', '1m': '1M', '1y': '1Y' };
+  // Build current yield lookup: currency -> tenor -> yield_pct
+  const currentByTenor = {};
+  for (const c of currentCurves) {
+    if (!currentByTenor[c.currency]) currentByTenor[c.currency] = {};
+    currentByTenor[c.currency][c.tenor_years] = c.yield_pct;
+  }
 
-  // Group by currency -> horizon -> [{tenor_years, change_pct}]
+  // Reconstruct historical yields: historical = current - change
   const byCurrency = {};
   for (const c of changes) {
+    const curYield = currentByTenor[c.currency] && currentByTenor[c.currency][c.tenor_years];
+    if (curYield == null) continue;
+
     if (!byCurrency[c.currency]) byCurrency[c.currency] = {};
     if (!byCurrency[c.currency][c.horizon]) byCurrency[c.currency][c.horizon] = [];
     byCurrency[c.currency][c.horizon].push({
       tenor_years: c.tenor_years,
-      change_bp: pctToBp(c.change_pct),
+      yield_pct: curYield - (c.change_pct || 0),
     });
   }
 
   const currencies = CURRENCY_ORDER.filter(c => byCurrency[c]);
   if (currencies.length === 0) {
-    body.innerHTML = '<div class="empty-message">No change data available</div>';
+    body.innerHTML = '<div class="empty-message">No curve history available</div>';
     return;
   }
 
+  // 2×2 grid of charts
   const grid = document.createElement('div');
-  grid.className = 'changes-grid';
-
-  // Header row: empty corner + horizon labels
-  grid.appendChild(document.createElement('div'));
-  for (const h of horizons) {
-    const hdr = document.createElement('div');
-    hdr.className = 'ch-header';
-    hdr.textContent = horizonLabels[h];
-    grid.appendChild(hdr);
-  }
-
-  // Mini chart dimensions
-  const cellW = 100;
-  const cellH = 44;
-  const pad = { top: 4, right: 4, bottom: 4, left: 4 };
-  const w = cellW - pad.left - pad.right;
-  const h = cellH - pad.top - pad.bottom;
+  grid.className = 'history-grid';
 
   for (const cur of currencies) {
-    // Row label
-    const label = document.createElement('div');
-    label.className = `ch-label text-${cur.toLowerCase()}`;
-    label.textContent = cur;
-    grid.appendChild(label);
+    const cell = document.createElement('div');
+    cell.className = 'history-cell';
 
-    for (const hz of horizons) {
-      const cell = document.createElement('div');
-      cell.className = 'ch-cell';
+    const title = document.createElement('div');
+    title.className = 'history-cell-title';
+    title.style.color = COLORS[cur];
+    title.textContent = cur;
+    cell.appendChild(title);
 
-      const points = (byCurrency[cur][hz] || [])
-        .sort((a, b) => a.tenor_years - b.tenor_years);
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'history-cell-chart';
+    cell.appendChild(chartDiv);
 
-      if (points.length === 0) {
-        cell.innerHTML = '<span style="color:#555;font-size:0.7rem">\u2014</span>';
-        grid.appendChild(cell);
-        continue;
-      }
-
-      const bpValues = points.map(p => p.change_bp);
-      const maxAbs = Math.max(Math.abs(d3.min(bpValues)), Math.abs(d3.max(bpValues)), 1);
-
-      const x = d3.scaleLinear()
-        .domain([d3.min(points, p => p.tenor_years), d3.max(points, p => p.tenor_years)])
-        .range([0, w]);
-
-      const y = d3.scaleLinear()
-        .domain([-maxAbs, maxAbs])
-        .range([h, 0]);
-
-      const line = d3.line()
-        .x(p => x(p.tenor_years))
-        .y(p => y(p.change_bp))
-        .curve(d3.curveMonotoneX);
-
-      const svg = d3.select(cell)
-        .append('svg')
-        .attr('viewBox', `0 0 ${cellW} ${cellH}`)
-        .attr('preserveAspectRatio', 'xMidYMid meet');
-
-      const g = svg.append('g')
-        .attr('transform', `translate(${pad.left},${pad.top})`);
-
-      // Zero line
-      g.append('line')
-        .attr('x1', 0).attr('x2', w)
-        .attr('y1', y(0)).attr('y2', y(0))
-        .attr('stroke', '#333')
-        .attr('stroke-dasharray', '2,2');
-
-      // Change curve
-      g.append('path')
-        .datum(points)
-        .attr('d', line)
-        .attr('fill', 'none')
-        .attr('stroke', COLORS[cur] || '#999')
-        .attr('stroke-width', 1.5);
-
-      grid.appendChild(cell);
-    }
+    grid.appendChild(cell);
   }
 
   body.appendChild(grid);
+
+  // Render after DOM insertion for getBoundingClientRect
+  requestAnimationFrame(() => {
+    const charts = grid.querySelectorAll('.history-cell-chart');
+    currencies.forEach((cur, i) => {
+      renderHistoryChart(charts[i], cur, byCurrency[cur] || {}, currentCurves);
+    });
+  });
+}
+
+function renderHistoryChart(container, currency, horizonData, currentCurves) {
+  const rect = container.getBoundingClientRect();
+  const margin = { top: 4, right: 8, bottom: 18, left: 32 };
+  const width = rect.width - margin.left - margin.right;
+  const height = rect.height - margin.top - margin.bottom;
+  if (width <= 0 || height <= 0) return;
+
+  // Current curve points
+  const curPoints = currentCurves
+    .filter(c => c.currency === currency)
+    .sort((a, b) => a.tenor_years - b.tenor_years);
+
+  // Collect all yields for scale
+  let allYields = curPoints.map(p => p.yield_pct);
+  for (const hz of Object.keys(horizonData)) {
+    allYields.push(...horizonData[hz].map(p => p.yield_pct));
+  }
+
+  if (allYields.length === 0) return;
+
+  const yMin = d3.min(allYields);
+  const yMax = d3.max(allYields);
+  const yPad = (yMax - yMin) * 0.15 || 0.5;
+  const allTenors = curPoints.map(p => p.tenor_years);
+
+  const x = d3.scaleLinear()
+    .domain([d3.min(allTenors), d3.max(allTenors)])
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain([yMin - yPad, yMax + yPad])
+    .range([height, 0]);
+
+  const svg = d3.select(container)
+    .append('svg')
+    .attr('viewBox', `0 0 ${rect.width} ${rect.height}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet');
+
+  const g = svg.append('g')
+    .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Grid
+  g.append('g').attr('class', 'grid').attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickSize(-height).tickFormat(''));
+  g.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat(''));
+
+  // Axes
+  g.append('g').attr('class', 'axis').attr('transform', `translate(0,${height})`)
+    .call(d3.axisBottom(x).ticks(4).tickFormat(d => d + 'y'));
+  g.append('g').attr('class', 'axis')
+    .call(d3.axisLeft(y).ticks(3).tickFormat(d => d.toFixed(1) + '%'));
+
+  const line = d3.line()
+    .x(p => x(p.tenor_years))
+    .y(p => y(p.yield_pct))
+    .curve(d3.curveMonotoneX);
+
+  const color = COLORS[currency] || '#999';
+
+  // Draw traces oldest-first so newest is on top
+  for (let i = TRACE_STYLES.length - 1; i >= 0; i--) {
+    const style = TRACE_STYLES[i];
+    let points;
+    if (style.key === 'today') {
+      points = curPoints;
+    } else {
+      points = (horizonData[style.key] || [])
+        .sort((a, b) => a.tenor_years - b.tenor_years);
+    }
+    if (points.length === 0) continue;
+
+    const path = g.append('path')
+      .datum(points)
+      .attr('d', line)
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', style.width)
+      .attr('opacity', style.opacity);
+
+    if (style.dash) {
+      path.attr('stroke-dasharray', style.dash);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -69,8 +69,8 @@ class TestComputeSlopes:
         )
         result = compute_slopes(df)
 
-        assert result.shape[0] == 3
-        assert set(result["slope_name"].to_list()) == {"2s10s", "2s30s", "5s30s"}
+        assert result.shape[0] == 4
+        assert set(result["slope_name"].to_list()) == {"2s10s", "2s30s", "5s30s", "5s10s"}
 
         slopes = dict(
             zip(result["slope_name"].to_list(), result["value_bp"].to_list())
@@ -92,24 +92,31 @@ class TestComputeSlopes:
 
         currencies = result["currency"].unique().to_list()
         assert sorted(currencies) == ["CAD", "USD"]
-        # 3 slopes per currency
-        assert result.shape[0] == 6
+        # 5 slopes per currency (2s10s, 2s30s, 5s30s, 5s10s, 5s20s)
+        # but 5s20s requires 20yr tenor which isn't present, so 4 per currency
+        assert result.shape[0] == 8
 
     def test_compute_slopes_missing_tenor(self) -> None:
-        """Currency with only 5/10/20yr tenors skips 2s10s, 2s30s, 5s30s."""
+        """Currency with only 5/10/20yr tenors gets 5s10s and 5s20s from defaults."""
         df = _make_curves(
             date(2024, 1, 15),
             {"GBP": {5.0: 4.00, 10.0: 4.30, 20.0: 4.60}},
         )
-        # Default pairs (2,10), (2,30), (5,30) -- all require 2yr or 30yr
+        # Default pairs now include (5,10) and (5,20) which work for GBP
         result = compute_slopes(df)
-        assert result.is_empty()
+        slope_names = set(result["slope_name"].to_list())
+        assert "5s10s" in slope_names
+        assert "5s20s" in slope_names
+        # But 2s10s, 2s30s, 5s30s should not appear (missing 2yr and 30yr)
+        assert "2s10s" not in slope_names
+        assert "2s30s" not in slope_names
+        assert "5s30s" not in slope_names
 
-        # But a custom pair that fits should work
-        result2 = compute_slopes(df, pairs=[(5, 10)])
-        assert result2.shape[0] == 1
-        assert result2["slope_name"][0] == "5s10s"
-        assert result2["value_bp"][0] == pytest.approx((4.30 - 4.00) * 100)
+        slopes = dict(
+            zip(result["slope_name"].to_list(), result["value_bp"].to_list())
+        )
+        assert slopes["5s10s"] == pytest.approx((4.30 - 4.00) * 100)
+        assert slopes["5s20s"] == pytest.approx((4.60 - 4.00) * 100)
 
     def test_compute_slopes_custom_pairs(self) -> None:
         """Custom pairs=[(5,10)] should produce only that slope."""
@@ -215,6 +222,21 @@ class TestComputeCrossMarketSpreads:
         assert result.shape[0] == 2
         tenors = sorted(result["tenor_years"].to_list())
         assert tenors == [5.0, 10.0]
+
+    def test_compute_cross_market_spreads_cad_eur(self) -> None:
+        """CAD-EUR pair (GoC-Bund spread) is included in defaults."""
+        df = _make_curves(
+            date(2024, 1, 15),
+            {
+                "CAD": {10.0: 3.90},
+                "EUR": {10.0: 2.50},
+            },
+        )
+        result = compute_cross_market_spreads(df)
+
+        cad_eur = result.filter(pl.col("pair") == "CAD-EUR")
+        assert cad_eur.shape[0] == 1
+        assert cad_eur["spread_bp"][0] == pytest.approx((3.90 - 2.50) * 100)
 
     def test_compute_cross_market_spreads_no_overlap_date(self) -> None:
         """One currency on a different date produces no spreads."""

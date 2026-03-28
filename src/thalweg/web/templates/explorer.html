@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Thalweg — Curve Explorer</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
   <header class="header">
-    <h1>Curve Explorer</h1>
+    <h1>Curve Explorer <span class="info-tip" data-tip="Yield curves for any historical date. Drag the slider or press arrow keys to step through time. Click a tenor point to see its full history.">ⓘ</span></h1>
     <nav class="header-nav">
       <a href="/dashboard">Dashboard</a>
       <a href="/analytics">Analytics</a>
@@ -25,6 +26,16 @@
       </div>
       <div class="slider-info">
         <span id="slider-date-display" class="slider-date"></span>
+        <div class="playback-controls">
+          <button id="play-btn" class="btn-small" title="Play/Pause (Space)">&#9654;</button>
+          <select id="speed-select" class="explorer-select" title="Playback speed">
+            <option value="slow">Slow</option>
+            <option value="med" selected>1M/s</option>
+            <option value="fast">3M/s</option>
+            <option value="max">1Y/2s</option>
+          </select>
+          <button id="loop-btn" class="btn-small" title="Toggle loop">Loop</button>
+        </div>
         <div class="overlay-controls">
           <button id="add-overlay-btn" class="btn-small">+ Compare</button>
           <input type="date" id="overlay-date-input" class="overlay-input" style="display:none">
