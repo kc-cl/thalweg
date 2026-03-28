@@ -31,6 +31,23 @@ class OvernightRatesFetcher(BaseFetcher):
     def name(self) -> str:
         return "overnight"
 
+    @staticmethod
+    def _get_boe_client() -> httpx.AsyncClient:
+        """Create an httpx client with headers suitable for BoE IADB."""
+        transport = httpx.AsyncHTTPTransport(retries=3)
+        return httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; Thalweg/0.1; "
+                    "+https://github.com/kc-cl/thalweg)"
+                ),
+                "Accept": "text/csv, text/plain, */*",
+            },
+        )
+
     # ------------------------------------------------------------------
     # Parsers
     # ------------------------------------------------------------------
@@ -216,8 +233,9 @@ class OvernightRatesFetcher(BaseFetcher):
         end = date.today()
         start = end - timedelta(days=7)
         params = _build_boe_params(start, end)
-        resp = await client.get(_BOE_IADB_URL, params=params)
-        resp.raise_for_status()
+        async with self._get_boe_client() as boe_client:
+            resp = await boe_client.get(_BOE_IADB_URL, params=params)
+            resp.raise_for_status()
         self.save_raw(resp.content, "csv")
         df = self._parse_sonia_csv(resp.text)
         if df.shape[0] == 0:
@@ -306,17 +324,22 @@ class OvernightRatesFetcher(BaseFetcher):
         """Backfill SONIA rates, chunked by year."""
         frames: list[pl.DataFrame] = []
         current = start_date
-        while current <= end_date:
-            chunk_end = min(date(current.year, 12, 31), end_date)
-            logger.info("SONIA backfill: %s to %s", current, chunk_end)
-            params = _build_boe_params(current, chunk_end)
-            resp = await client.get(_BOE_IADB_URL, params=params)
-            resp.raise_for_status()
-            df = self._parse_sonia_csv(resp.text)
-            if df.shape[0] > 0:
-                frames.append(df)
-                logger.info("  -> %d SONIA rows", df.shape[0])
-            current = date(current.year + 1, 1, 1)
+        async with self._get_boe_client() as boe_client:
+            while current <= end_date:
+                chunk_end = min(date(current.year, 12, 31), end_date)
+                logger.info("SONIA backfill: %s to %s", current, chunk_end)
+                params = _build_boe_params(current, chunk_end)
+                resp = await boe_client.get(_BOE_IADB_URL, params=params)
+                if resp.status_code == 403:
+                    logger.warning("  BoE returned 403 for SONIA %d — skipping", current.year)
+                    current = date(current.year + 1, 1, 1)
+                    continue
+                resp.raise_for_status()
+                df = self._parse_sonia_csv(resp.text)
+                if df.shape[0] > 0:
+                    frames.append(df)
+                    logger.info("  -> %d SONIA rows", df.shape[0])
+                current = date(current.year + 1, 1, 1)
 
         if not frames:
             return pl.DataFrame(schema=_EMPTY_RATE_SCHEMA)

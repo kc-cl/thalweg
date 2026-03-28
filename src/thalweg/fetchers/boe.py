@@ -10,6 +10,7 @@ import io
 import logging
 from datetime import date, timedelta
 
+import httpx
 import polars as pl
 
 from thalweg.fetchers.base import BaseFetcher
@@ -145,6 +146,22 @@ class BoEFetcher(BaseFetcher):
             "VFD": "N",
         }
 
+    def _get_client(self) -> httpx.AsyncClient:
+        """Create an httpx client with a browser-like User-Agent for BoE."""
+        transport = httpx.AsyncHTTPTransport(retries=3)
+        return httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(30.0),
+            follow_redirects=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; Thalweg/0.1; "
+                    "+https://github.com/kc-cl/thalweg)"
+                ),
+                "Accept": "text/csv, text/plain, */*",
+            },
+        )
+
     async def fetch_latest(self) -> pl.DataFrame:
         """Fetch the most recent BoE gilt nominal par yields.
 
@@ -196,6 +213,10 @@ class BoEFetcher(BaseFetcher):
 
             async with self._get_client() as client:
                 resp = await client.get(_IADB_URL, params=params)
+                if resp.status_code == 403:
+                    logger.warning("  BoE returned 403 for %d — skipping", current.year)
+                    current = date(current.year + 1, 1, 1)
+                    continue
                 resp.raise_for_status()
                 csv_text = resp.text
 
