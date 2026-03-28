@@ -1,0 +1,42 @@
+[project]
+name = "thalweg"
+version = "0.1.0"
+description = "Yield curve observatory — sovereign curves, analytics, and visualization for CAD, USD, EUR, GBP markets."
+authors = [
+    { name = "kc-cl", email = "217068499+kc-cl@users.noreply.github.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+    "polars",
+    "pyarrow",
+    "fastapi",
+    "uvicorn",
+    "click",
+    "scikit-learn",
+    "scipy",
+    "openpyxl",
+    "jinja2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[project.scripts]
+thalweg = "thalweg.cli:cli"
+
+[build-system]
+requires = ["uv_build>=0.10.7,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 99
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
