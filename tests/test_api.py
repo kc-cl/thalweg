@@ -108,6 +108,13 @@ async def test_explorer_renders(client: AsyncClient) -> None:
     assert "Curve Explorer" in resp.text
 
 
+async def test_analytics_renders(client: AsyncClient) -> None:
+    """GET /analytics should return 200 with HTML."""
+    resp = await client.get("/analytics")
+    assert resp.status_code == 200
+    assert "Analytics" in resp.text
+
+
 # ---------------------------------------------------------------------------
 # /api/curves/latest
 # ---------------------------------------------------------------------------

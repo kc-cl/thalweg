@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thalweg — Analytics</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Analytics</h1>
+    <nav class="header-nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/explorer">Explorer</a>
+      <span class="date" id="header-date"></span>
+    </nav>
+  </header>
+
+  <main class="analytics-page">
+    <!-- Controls row -->
+    <section class="analytics-controls">
+      <label for="currency-select" style="font-size:0.8rem;color:#888;">Currency</label>
+      <select id="currency-select">
+        <option value="CAD">CAD</option>
+        <option value="USD" selected>USD</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+      </select>
+      <div class="horizon-buttons">
+        <button class="horizon-btn" data-horizon="21">1m</button>
+        <button class="horizon-btn active" data-horizon="63">3m</button>
+        <button class="horizon-btn" data-horizon="126">6m</button>
+        <button class="horizon-btn" data-horizon="252">12m</button>
+      </div>
+    </section>
+
+    <!-- Panel 1: Phase Space -->
+    <section class="panel analytics-panel tall" id="phase-panel">
+      <div class="panel-title">Phase Space: PC1 vs PC2</div>
+      <div class="panel-body" id="phase-chart"></div>
+    </section>
+
+    <!-- Panel 2: Fan Chart -->
+    <section class="panel analytics-panel" id="fan-panel">
+      <div class="panel-title">Shock Fan Chart</div>
+      <div class="panel-body" id="fan-chart"></div>
+    </section>
+
+    <!-- Panel 3: Conditional Forecast -->
+    <section class="panel analytics-panel" id="forecast-panel">
+      <div class="panel-title">Conditional Forecast (Analog Spaghetti)</div>
+      <div class="panel-body" id="forecast-chart"></div>
+    </section>
+  </main>
+
+  <footer class="attribution">
+    Source: Bank of Canada &middot;
+    Source: U.S. Department of the Treasury &middot;
+    Source: European Central Bank &middot;
+    Source: Bank of England &middot;
+    Source: Board of Governors of the Federal Reserve System
+  </footer>
+
+  <script src="/static/js/analytics.js"></script>
+</body>
+</html>

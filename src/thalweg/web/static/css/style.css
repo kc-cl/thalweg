@@ -583,6 +583,79 @@ body {
   min-height: 0;
 }
 
+/* -------------------------------------------------------- Analytics page */
+
+.analytics-page {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: calc(100vh - 100px);
+}
+
+.analytics-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.analytics-controls select {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.horizon-buttons {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.horizon-btn {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.horizon-btn:hover {
+  background: #222244;
+}
+
+.horizon-btn.active {
+  background: #3498db;
+  border-color: #3498db;
+  color: #fff;
+}
+
+.analytics-panel {
+  min-height: 300px;
+}
+
+.analytics-panel.tall {
+  min-height: 350px;
+}
+
+.scatter-tooltip {
+  position: absolute;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #e0e0e0;
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* ---------------------------------------------------------- Responsive */
 
 @media (max-width: 900px) {

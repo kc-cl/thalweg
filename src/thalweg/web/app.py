@@ -45,4 +45,9 @@ def create_app() -> FastAPI:
         """Render the Curve Explorer template."""
         return templates.TemplateResponse(request, "explorer.html")
 
+    @app.get("/analytics")
+    async def analytics(request: Request):  # type: ignore[no-untyped-def]
+        """Render the Analytics template."""
+        return templates.TemplateResponse(request, "analytics.html")
+
     return app
