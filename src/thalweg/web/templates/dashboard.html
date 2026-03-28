@@ -1,12 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Thalweg — Yield Curve Observatory</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thalweg — Yield Curve Observatory</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
-    <h1>Thalweg Dashboard</h1>
-    <p>Dashboard placeholder — visualization coming soon.</p>
+  <header class="header">
+    <h1>Curveboard</h1>
+    <span class="date" id="header-date"></span>
+  </header>
+
+  <main class="dashboard">
+    <!-- Top-left: yield curves -->
+    <section class="panel" id="curves-panel">
+      <div class="panel-title">Yield Curves — Today</div>
+      <div class="panel-body" id="curves-chart"></div>
+    </section>
+
+    <!-- Top-right: changes vs prior periods -->
+    <section class="panel" id="changes-panel">
+      <div class="panel-title">Curve Changes</div>
+      <div class="panel-body"></div>
+    </section>
+
+    <!-- Bottom-left: overnight rates -->
+    <section class="panel" id="rates-panel">
+      <div class="panel-title">Key Rates</div>
+      <div class="panel-body"></div>
+    </section>
+
+    <!-- Bottom-right: slopes and spreads -->
+    <section class="panel" id="slopes-panel">
+      <div class="panel-title">Slopes &amp; Spreads</div>
+      <div class="panel-body"></div>
+    </section>
+  </main>
+
+  <footer class="attribution">
+    Source: Bank of Canada &middot;
+    Source: U.S. Department of the Treasury &middot;
+    Source: European Central Bank &middot;
+    Source: Bank of England &middot;
+    Source: Board of Governors of the Federal Reserve System
+  </footer>
+
+  <script src="/static/js/dashboard.js"></script>
 </body>
 </html>
