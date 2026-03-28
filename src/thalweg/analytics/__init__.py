@@ -1,6 +1,7 @@
 """Analytics module for yield curve derived metrics."""
 
 from thalweg.analytics.distributions import compute_fan_chart, compute_shock_distribution
+from thalweg.analytics.forecasts import find_analogs, forecast_from_analogs
 from thalweg.analytics.pca import fit_all_pca, fit_pca
 from thalweg.analytics.regimes import classify_regimes
 from thalweg.analytics.spreads import (
@@ -16,6 +17,8 @@ __all__ = [
     "compute_fan_chart",
     "compute_shock_distribution",
     "compute_slopes",
+    "find_analogs",
     "fit_all_pca",
     "fit_pca",
+    "forecast_from_analogs",
 ]
