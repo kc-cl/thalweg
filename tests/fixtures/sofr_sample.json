@@ -1,0 +1,26 @@
+{
+  "refRates": [
+    {
+      "effectiveDate": "2025-03-26",
+      "percentRate": 4.30,
+      "type": "SOFR",
+      "percentPercentile1": 4.25,
+      "percentPercentile25": 4.29,
+      "percentPercentile75": 4.31,
+      "percentPercentile99": 4.35,
+      "volumeInBillions": 2100.5,
+      "averageDealSize": 100.2
+    },
+    {
+      "effectiveDate": "2025-03-27",
+      "percentRate": 4.31,
+      "type": "SOFR",
+      "percentPercentile1": 4.26,
+      "percentPercentile25": 4.30,
+      "percentPercentile75": 4.32,
+      "percentPercentile99": 4.36,
+      "volumeInBillions": 2150.3,
+      "averageDealSize": 101.5
+    }
+  ]
+}

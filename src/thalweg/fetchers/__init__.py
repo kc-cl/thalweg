@@ -3,6 +3,7 @@
 from thalweg.fetchers.boc import BoCFetcher
 from thalweg.fetchers.boe import BoEFetcher
 from thalweg.fetchers.ecb import ECBFetcher
+from thalweg.fetchers.overnight import OvernightRatesFetcher
 from thalweg.fetchers.ust import USTFetcher
 
 FETCHERS = {
@@ -12,4 +13,16 @@ FETCHERS = {
     "ust": USTFetcher,
 }
 
-__all__ = ["FETCHERS", "BoCFetcher", "BoEFetcher", "ECBFetcher", "USTFetcher"]
+RATE_FETCHERS = {
+    "overnight": OvernightRatesFetcher,
+}
+
+__all__ = [
+    "FETCHERS",
+    "RATE_FETCHERS",
+    "BoCFetcher",
+    "BoEFetcher",
+    "ECBFetcher",
+    "OvernightRatesFetcher",
+    "USTFetcher",
+]
