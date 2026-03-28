@@ -30,18 +30,27 @@ def cli() -> None:
 @cli.command()
 @click.option(
     "--source",
-    type=click.Choice(["boc", "ust", "all"]),
+    type=click.Choice(["boc", "ust", "ecb", "boe", "overnight", "all"]),
     default="all",
     help="Data source to fetch.",
 )
 def fetch(source: str) -> None:
     """Fetch latest yield curve data."""
     from thalweg import storage
-    from thalweg.fetchers import FETCHERS
+    from thalweg.fetchers import FETCHERS, RATE_FETCHERS
 
     async def _run() -> None:
-        sources = list(FETCHERS) if source == "all" else [source]
-        for src in sources:
+        if source == "all":
+            curve_sources = list(FETCHERS)
+            rate_sources = list(RATE_FETCHERS)
+        elif source in RATE_FETCHERS:
+            curve_sources: list[str] = []
+            rate_sources = [source]
+        else:
+            curve_sources = [source]
+            rate_sources: list[str] = []
+
+        for src in curve_sources:
             fetcher = FETCHERS[src]()
             click.echo(f"Fetching latest from {src}...")
             df = await fetcher.fetch_latest()
@@ -51,13 +60,23 @@ def fetch(source: str) -> None:
             storage.append_curves(df)
             click.echo(f"  Stored {df.shape[0]} rows")
 
+        for src in rate_sources:
+            fetcher = RATE_FETCHERS[src]()
+            click.echo(f"Fetching latest from {src}...")
+            df = await fetcher.fetch_latest()
+            if df.shape[0] == 0:
+                click.echo(f"  No data returned from {src}")
+                continue
+            storage.append_rates(df)
+            click.echo(f"  Stored {df.shape[0]} rows")
+
     asyncio.run(_run())
 
 
 @cli.command()
 @click.option(
     "--source",
-    type=click.Choice(["boc", "ust", "all"]),
+    type=click.Choice(["boc", "ust", "ecb", "boe", "overnight", "all"]),
     required=True,
     help="Data source to backfill.",
 )
@@ -76,14 +95,23 @@ def fetch(source: str) -> None:
 def backfill(source: str, start: click.DateTime, end: click.DateTime) -> None:
     """Backfill historical yield curve data."""
     from thalweg import storage
-    from thalweg.fetchers import FETCHERS
+    from thalweg.fetchers import FETCHERS, RATE_FETCHERS
 
     start_date = start.date()
     end_date = end.date()
 
     async def _run() -> None:
-        sources = list(FETCHERS) if source == "all" else [source]
-        for src in sources:
+        if source == "all":
+            curve_sources = list(FETCHERS)
+            rate_sources = list(RATE_FETCHERS)
+        elif source in RATE_FETCHERS:
+            curve_sources: list[str] = []
+            rate_sources = [source]
+        else:
+            curve_sources = [source]
+            rate_sources: list[str] = []
+
+        for src in curve_sources:
             fetcher = FETCHERS[src]()
             click.echo(f"Backfilling {src} from {start_date} to {end_date}...")
             df = await fetcher.backfill(start_date, end_date)
@@ -93,20 +121,62 @@ def backfill(source: str, start: click.DateTime, end: click.DateTime) -> None:
             storage.append_curves(df)
             click.echo(f"  Stored {df.shape[0]} rows")
 
+        for src in rate_sources:
+            fetcher = RATE_FETCHERS[src]()
+            click.echo(f"Backfilling {src} from {start_date} to {end_date}...")
+            df = await fetcher.backfill(start_date, end_date)
+            if df.shape[0] == 0:
+                click.echo(f"  No data returned from {src}")
+                continue
+            storage.append_rates(df)
+            click.echo(f"  Stored {df.shape[0]} rows")
+
     asyncio.run(_run())
 
 
 @cli.command()
 def analyze() -> None:
-    """Recompute derived analytics (spreads, slopes, regimes)."""
-    click.echo("analyze: not implemented yet")
+    """Recompute derived analytics (spreads, slopes, curvature)."""
+    from thalweg import storage
+    from thalweg.analytics import compute_cross_market_spreads, compute_curvature, compute_slopes
+    from thalweg.config import DERIVED_DIR
+
+    curves = storage.read_curves()
+    if curves.is_empty():
+        click.echo("No curve data found. Run 'thalweg fetch' first.")
+        return
+
+    click.echo("Computing analytics...")
+
+    slopes = compute_slopes(curves)
+    if not slopes.is_empty():
+        slopes.write_parquet(DERIVED_DIR / "slopes.parquet")
+        click.echo(f"  Wrote {slopes.shape[0]} slope records")
+
+    curvature = compute_curvature(curves)
+    if not curvature.is_empty():
+        curvature.write_parquet(DERIVED_DIR / "curvature.parquet")
+        click.echo(f"  Wrote {curvature.shape[0]} curvature records")
+
+    spreads = compute_cross_market_spreads(curves)
+    if not spreads.is_empty():
+        spreads.write_parquet(DERIVED_DIR / "spreads.parquet")
+        click.echo(f"  Wrote {spreads.shape[0]} spread records")
+
+    click.echo("Analytics complete.")
 
 
 @cli.command()
 @click.option("--port", default=8001, help="Port to serve on.")
 def serve(port: int) -> None:
     """Start the Thalweg web server."""
-    click.echo(f"serve --port {port}: not implemented yet")
+    import uvicorn
+
+    from thalweg.web import create_app
+
+    app = create_app()
+    click.echo(f"Starting Thalweg server on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
 @cli.command()
@@ -114,17 +184,28 @@ def status() -> None:
     """Show data status (latest dates, row counts)."""
     import polars as pl
 
-    from thalweg.config import CURVES_DIR
+    from thalweg.config import CURVES_DIR, DERIVED_DIR, RATES_DIR
 
-    parquet_files = sorted(CURVES_DIR.glob("*.parquet"))
-    if not parquet_files:
+    all_dirs = [
+        ("Curves", CURVES_DIR),
+        ("Rates", RATES_DIR),
+        ("Derived", DERIVED_DIR),
+    ]
+
+    found = False
+    for label, data_dir in all_dirs:
+        parquet_files = sorted(data_dir.glob("*.parquet"))
+        if not parquet_files:
+            continue
+        if not found:
+            click.echo(f"{'File':<30} {'Latest Date':<15} {'Rows':>10}")
+            click.echo("-" * 57)
+            found = True
+        for path in parquet_files:
+            df = pl.read_parquet(path)
+            latest = df["date"].max()
+            rows = df.shape[0]
+            click.echo(f"{path.name:<30} {str(latest):<15} {rows:>10,}")
+
+    if not found:
         click.echo("No data files found.")
-        return
-
-    click.echo(f"{'File':<25} {'Latest Date':<15} {'Rows':>10}")
-    click.echo("-" * 52)
-    for path in parquet_files:
-        df = pl.read_parquet(path)
-        latest = df["date"].max()
-        rows = df.shape[0]
-        click.echo(f"{path.name:<25} {str(latest):<15} {rows:>10,}")
