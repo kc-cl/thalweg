@@ -82,8 +82,9 @@ def fit_pca(
     if ccy_df.is_empty():
         return None
 
-    # Determine curve_type (use the first one present)
+    # Determine curve_type (use the first one present) and filter to it
     curve_type = ccy_df["curve_type"][0]
+    ccy_df = ccy_df.filter(pl.col("curve_type") == curve_type)
 
     # Pivot to wide: rows = dates, columns = tenors
     wide = ccy_df.pivot(
