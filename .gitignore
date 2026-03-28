@@ -1,0 +1,10 @@
+data/
+*.parquet
+.env
+__pycache__/
+.ruff_cache/
+node_modules/
+dist/
+.venv/
+*.egg-info/
+.pytest_cache/
